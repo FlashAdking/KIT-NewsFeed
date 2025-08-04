@@ -1,56 +1,73 @@
-import { Types, Document } from 'mongoose';
+import { Document, Types } from 'mongoose';
 
 export interface IPost extends Document {
-
     _id: Types.ObjectId;
-    title: string; // Title of the post
-    content: string; // Content of the post
+    title: string;
+    content: string;
 
     media?: {
-        type: 'image' | 'document'; // Type of media
-        url: string; // URL of the media
-        filename: string; // Filename of the media
+        type: 'image' | 'document';
+        url: string;
+        filename: string;
+        size: number;
+        originalSize?: number;
+        compressionRatio?: number;
+        dimensions? : {
+            width : number;
+            height : number;
+        };
     }[];
 
+    createdBy: Types.ObjectId;
+    authorType: 'club' | 'faculty';
+    clubId?: Types.ObjectId;
 
-    // author information
-    createdBy: Types.ObjectId; // Reference to IUser who created the post
-    authorType: 'student' | 'faculty'; // Type of the author
-    clubId?: Types.ObjectId; // Reference to IClub if the post is related to a club
+    categoryId: Types.ObjectId;
+    postType: 'announcement' | 'event' | 'news' | 'general';
+    priority: 'low' | 'medium' | 'high';
 
-    categoryId: Types.ObjectId; // Reference to ICategory for categorization
-    postType: 'announcement' | 'event' | 'news' | 'general'; // Type of the post
-    priority: 'low' | 'medium' | 'high'; // Priority of the post
-
-
-    // event details if the post is an event
+    // ✅ UPDATED: Enhanced eventDetails
     eventDetails?: {
-        eventDate: Date; // Date of the event
-        venue: string; // Venue of the event
-        registrationRequired: boolean; // Is registration required for the event
-        registrationDeadline?: Date; // Deadline for registration
-        maxParticipants?: number; // Maximum number of participants
-
+        eventDate: Date;
+        venue: string;
+        registrationRequired: boolean;
+        registrationDeadline?: Date;
+        maxParticipants?: number;
+        
+        // ✅ NEW: Registration fields
+        registrationFee?: number;
+        allowWaitlist?: boolean;
+        requiresApproval?: boolean;
+        
+        // ✅ NEW: Additional info
+        description?: string;
+        instructions?: string;
+        contactInfo?: {
+            email?: string;
+            phone?: string;
+        };
     };
 
-    registrationLink?: string; // URL to Google Form
+    registrationLink?: string;
 
-    // This is in your IPost interface:
+    // ✅ NEW: Registration statistics
+    registrationStats?: {
+        totalRegistered: number;
+        totalPaid: number;
+        totalRevenue: number;
+        waitlistCount: number;
+    };
+
     status: 'draft' | 'pending' | 'approved' | 'published' | 'rejected';
+    moderatedBy?: Types.ObjectId;
 
+    likes: Types.ObjectId[];
+    views: number;
+    isPinned: boolean;
 
-    //engagement
-    likes: Types.ObjectId[]; // Array of user IDs who liked the post
-    views: number; // Number of views the post has received
-    isPinned: boolean; // Whether the post is pinned or not
+    publishedAt: Date;
+    scheduledFor?: Date;
 
-    //publishing
-    publishedAt: Date; // When the post was published
-    scheduledFor?: Date; // When the post is scheduled to be published
-
-    //timestamps
-    createdAt: Date; // When the post was created
-    updatedAt: Date; // When the post was last updated
-
-
+    createdAt: Date;
+    updatedAt: Date;
 }

@@ -13,6 +13,8 @@ export interface IClubMembership extends Document {
     status: 'pending' |  'approved' | 'rejected' | 'revoked'; // Membership status
 
 
+    notes?: string; // Additional notes about the membership, e.g., reason for rejection
+
     //reqeuest tracking
     requestedAt: Date; // When the membership was requested
     decidedAt?: Date; // When the membership was decided(approved/rejected)
