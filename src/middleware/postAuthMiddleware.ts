@@ -13,17 +13,7 @@ export const canCreatePost = async (req: Request, res: Response, next: NextFunct
       case 'admin':
         // Admins can always create posts
         return next();
-        
-      case 'faculty':
-        // Faculty must be approved to create posts
-        if (!user.facultyProfile?.isApproved) {
-          return res.status(403).json({
-            error: 'Faculty approval required',
-            message: 'Your faculty account is pending admin approval. You cannot create posts until approved.'
-          });
-        }
-        return next();
-        
+    
       case 'student':
         // Students need club representative approval
         const { ClubMembership } = await import('../models/ClubMembership');

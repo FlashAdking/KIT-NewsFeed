@@ -6,7 +6,7 @@ export interface IUser extends Document {
   email: string;
   username: string;
   password: string; 
-  role: 'student' | 'faculty' | 'admin';
+  role: 'student'| 'admin';
   
   semester?: number; 
   collegeName: string;
@@ -20,20 +20,7 @@ export interface IUser extends Document {
     canManageClubs: boolean;
   }
 
-  // Updated faculty profile with rejection fields
-  facultyProfile?: {
-    isApproved: boolean;
-    approvedBy?: Types.ObjectId;
-    approvedAt?: Date;
-    department: string;
-    employeeId?: string;
-    designation?: string;
-    
-    // Add rejection fields
-    rejectedBy?: Types.ObjectId;
-    rejectedAt?: Date;
-    rejectionNotes?: string;
-  };
+ 
 
 
    clubRepresentative?: {

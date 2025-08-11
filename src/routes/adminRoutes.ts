@@ -10,9 +10,7 @@ router.use(authenticateToken);
 router.use(adminOnly);
 
 // Faculty Management Routes
-router.get('/faculty/pending', AdminController.getPendingFaculty);
-router.post('/faculty/:facultyId/process', AdminController.processFacultyApproval);
-router.get('/faculty/history', AdminController.getFacultyHistory);
+
 
 // Club Representative Management Routes
 router.get('/representatives/pending', AdminController.getPendingRepresentatives);

@@ -29,18 +29,7 @@ export const studentOnly = (req: Request, res: Response, next: NextFunction) => 
 };
 
 // Faculty only access
-export const facultyOnly = (req: Request, res: Response, next: NextFunction) => {
-  const user = req.user;
-  
-  if (!user || user.role !== 'faculty') {
-    return res.status(403).json({
-      success: false,
-      message: 'Faculty access required'
-    });
-  }
-  
-  next();
-};
+
 
 // Multiple roles allowed
 export const allowRoles = (...roles: string[]) => {
@@ -59,25 +48,6 @@ export const allowRoles = (...roles: string[]) => {
 };
 
 // Approved faculty only
-export const approvedFacultyOnly = (req: Request, res: Response, next: NextFunction) => {
-  const user = req.user;
-  
-  if (!user || user.role !== 'faculty') {
-    return res.status(403).json({
-      success: false,
-      message: 'Faculty access required'
-    });
-  }
-  
-  if (!user.facultyProfile?.isApproved) {
-    return res.status(403).json({
-      success: false,
-      message: 'Faculty approval required'
-    });
-  }
-  
-  next();
-};
 
 // Active club representative only
 export const clubRepresentativeOnly = (req: Request, res: Response, next: NextFunction) => {

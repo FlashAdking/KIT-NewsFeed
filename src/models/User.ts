@@ -34,7 +34,7 @@ const userSchema = new Schema<IUser>({
     role: {
         type: String,
         required: true,
-        enum: ['student', 'faculty', 'admin'],
+        enum: ['student', 'admin'],
 
     },
     semester: {
@@ -74,21 +74,6 @@ const userSchema = new Schema<IUser>({
         type: Boolean,
         default: false
     },
-    facultyProfile: {
-        isApproved: { type: Boolean, default: false },
-        approvedBy: { type: Schema.Types.ObjectId, ref: 'User' },
-        approvedAt: Date,
-        department: String,
-        employeeId: String,
-        designation: {
-            type: String,
-            enum: ['Professor', 'Associate Professor', 'Assistant Professor', 'Lecturer', 'Lab Assistant']
-        },
-        rejectedBy: { type: Schema.Types.ObjectId, ref: 'User' },
-        rejectedAt: Date,
-        rejectionNotes: String
-    },
-
     clubRepresentative: {
         isActive: { type: Boolean, default: false },
         clubId: { type: Schema.Types.ObjectId, ref: 'Club' },
@@ -118,15 +103,6 @@ userSchema.methods.comparePassword = function (plain: string) {
     return bcrypt.compare(plain, this.password);
 };
 
-userSchema.pre('save', function (next) {
-    if (this.role === 'faculty' && !this.facultyProfile) {
-        this.facultyProfile = {
-            isApproved: false,
-            department: this.department
-        };
-    }
-    next();
-});
 
 export const User = model<IUser>('User', userSchema);
 

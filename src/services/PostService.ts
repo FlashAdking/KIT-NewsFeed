@@ -32,12 +32,7 @@ export class PostService {
       let authorType: 'faculty' | 'club';
       let clubId: Types.ObjectId | undefined;
       
-      if (user.role === 'faculty') {
-        if (!user.facultyProfile?.isApproved) {
-          throw new Error('Faculty approval required to create posts');
-        }
-        authorType = 'faculty';
-      } else if (user.role === 'student') {
+       if (user.role === 'student') {
         if (!user.clubRepresentative?.isActive) {
           throw new Error('Club representative status required to create posts');
         }
@@ -203,11 +198,7 @@ export class PostService {
         if (post.clubId?.toString() !== user.clubRepresentative.clubId.toString()) {
           throw new Error('Can only edit your club\'s posts');
         }
-      } else if (user.role === 'faculty') {
-        if (post.createdBy.toString() !== user._id.toString()) {
-          throw new Error('Can only edit your own posts');
-        }
-      } else if (user.role !== 'admin') {
+      }else if (user.role !== 'admin') {
         throw new Error('Insufficient permissions');
       }
       
@@ -266,10 +257,6 @@ export class PostService {
       if (user.role === 'student' && user.clubRepresentative?.isActive) {
         if (post.clubId?.toString() !== user.clubRepresentative.clubId.toString()) {
           throw new Error('Can only delete your club\'s posts');
-        }
-      } else if (user.role === 'faculty') {
-        if (post.createdBy.toString() !== user._id.toString()) {
-          throw new Error('Can only delete your own posts');
         }
       } else if (user.role !== 'admin') {
         throw new Error('Insufficient permissions');

@@ -11,9 +11,6 @@ import postRoutes from './routes/postRoutes';
 import clubRepresentativeRoutes from './routes/clubRepresentativeRoutes';
 
 
-// Import your routes (we'll create these later)
-// import userRoutes from './routes/users';
-// import postRoutes from './routes/posts';
 
 // Load environment variables
 dotenv.config();
@@ -59,9 +56,7 @@ app.get('/health', (req: Request, res: Response) => {
   });
 });
 
-// API routes (we'll add these as we build the services)
-// app.use('/api/users', userRoutes);
-// app.use('/api/posts', postRoutes);
+
 
 // Error handling middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {

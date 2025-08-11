@@ -6,73 +6,9 @@ import { IUser } from '../models/interfaces/IUser';
 export class AdminController {
 
   // Faculty Management
-  static async getPendingFaculty(req: Request, res: Response) {
-    try {
-      const adminId = (req.user as IUser)._id.toString();
-      const result = await AdminService.getPendingFacultyApprovals(adminId);
+  
 
-      res.status(200).json({
-        success: true,
-        data: result
-      });
-    } catch (error: any) {
-      res.status(400).json({
-        success: false,
-        message: error.message
-      });
-    }
-  }
-
-  static async processFacultyApproval(req: Request, res: Response) {
-    try {
-      const adminId = (req.user as IUser)._id.toString();
-      const { facultyId } = req.params;
-      const { decision, notes } = req.body;
-
-      if (!['approved', 'rejected'].includes(decision)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Decision must be either approved or rejected'
-        });
-      }
-
-      const result = await AdminService.processFacultyApproval(
-        adminId,
-        facultyId,
-        decision,
-        notes
-      );
-
-      res.status(200).json({
-        success: true,
-        data: result
-      });
-    } catch (error: any) {
-      res.status(400).json({
-        success: false,
-        message: error.message
-      });
-    }
-  }
-
-  static async getFacultyHistory(req: Request, res: Response) {
-    try {
-      const adminId = (req.user as IUser)._id.toString();
-      const limit = parseInt(req.query.limit as string) || 50;
-
-      const result = await AdminService.getFacultyApprovalHistory(adminId, limit);
-
-      res.status(200).json({
-        success: true,
-        data: result
-      });
-    } catch (error: any) {
-      res.status(400).json({
-        success: false,
-        message: error.message
-      });
-    }
-  }
+  
 
   // Club Representative Management
   static async getPendingRepresentatives(req: Request, res: Response) {
