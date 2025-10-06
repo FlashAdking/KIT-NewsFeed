@@ -1,22 +1,24 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useToast } from './components/ToastProvider';
 
 function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  const { showSuccess, showError, showInfo } = useToast();
+
+  const API_BASE = 'http://localhost:8080';
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setMessage('');
 
     try {
-      const response = await fetch('http://localhost:8080/api/auth/login', {
+      const response = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -27,32 +29,64 @@ function Login() {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        setMessage('Login successful! Redirecting...');
-        console.log('Token:', result.data.token);
-        console.log('User:', result.data.user);
+        const token = result.data.token;
+        const user = result.data.user;
 
         // Store token and user data
-        localStorage.setItem('token', result.data.token);
-        localStorage.setItem('userData', JSON.stringify(result.data.user));
+        localStorage.setItem('token', token);
+        localStorage.setItem('userData', JSON.stringify(user));
 
-        // Redirect to intended page or home
-        const redirectTo = location.state?.redirectTo || '/';
-        const eventTitle = location.state?.eventTitle;
-        
-        if (eventTitle) {
-          setMessage(`Login successful! Redirecting to ${eventTitle}...`);
+        showSuccess('Login successful!');
+
+        // ✅ Smart redirect based on role
+        if (user.role === 'admin') {
+          // Admin users go to dashboard
+          setTimeout(() => {
+            navigate('/admin');
+          }, 1000);
+          return;
         }
 
-        setTimeout(() => {
-          navigate(redirectTo);
-        }, 1500);
+        // For students/regular users
+        const { pendingRegistration, from, eventTitle } = location.state || {};
+
+        if (pendingRegistration) {
+          // Auto-register for the event they tried to register for
+          try {
+            const regResp = await fetch(`${API_BASE}/api/posts/${pendingRegistration}/register`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+            });
+
+            if (regResp.ok) {
+              showSuccess(`Successfully registered for ${eventTitle || 'the event'}!`);
+            } else {
+              showError('Registration failed. Please try again from events page.');
+            }
+          } catch {
+            showError('Network error during registration');
+          }
+
+          setTimeout(() => {
+            navigate(from || '/');
+          }, 1500);
+        } else {
+          // Normal login - redirect to intended page or home
+          const redirectTo = from || location.state?.redirectTo || '/';
+          setTimeout(() => {
+            navigate(redirectTo);
+          }, 1000);
+        }
 
       } else {
-        setMessage(`${result.message || 'Invalid credentials'}`);
+        showError(result.error || result.message || 'Invalid credentials');
       }
     } catch (err) {
       console.error('Login error:', err);
-      setMessage('Server error. Please try again.');
+      showError('Server error. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -63,6 +97,7 @@ function Login() {
   };
 
   const redirectMessage = location.state?.message;
+  const eventTitle = location.state?.eventTitle;
 
   return (
     <div style={styles.wrapper}>
@@ -72,15 +107,25 @@ function Login() {
           <div style={styles.formContainer}>
             <h2 style={styles.title}>Welcome Back</h2>
             <p style={styles.subtitle}>Sign in to your EventEase account</p>
-            
+
             {redirectMessage && (
               <div style={styles.redirectMessage}>
                 {redirectMessage}
               </div>
             )}
 
+            {eventTitle && (
+              <div style={styles.eventNotice}>
+                <span style={styles.eventIcon}>🎫</span>
+                <div>
+                  <strong>Registration Pending</strong>
+                  <p>Login to register for: {eventTitle}</p>
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleLogin} style={styles.form}>
-              
+
               <div style={styles.inputGroup}>
                 <label style={styles.label}>Email Address</label>
                 <input
@@ -118,8 +163,8 @@ function Login() {
               </div>
 
               <div style={styles.forgotPassword}>
-                <button 
-                  onClick={() => alert('Forgot password feature coming soon!')} 
+                <button
+                  onClick={() => showInfo('Forgot password feature coming soon!')}
                   style={styles.forgotButton}
                   type="button"
                 >
@@ -127,8 +172,8 @@ function Login() {
                 </button>
               </div>
 
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 style={{
                   ...styles.button,
                   opacity: loading ? 0.7 : 1,
@@ -140,12 +185,22 @@ function Login() {
               </button>
             </form>
 
+            {/* ✅ Admin Login Notice */}
+            <div style={styles.adminNotice}>
+              <span style={styles.adminIcon}>⚙️</span>
+              <span style={styles.adminText}>Admins will be redirected to dashboard</span>
+            </div>
+
             <div style={styles.divider}>
               <span style={styles.dividerText}>Or continue with</span>
             </div>
 
-            <button style={styles.googleButton} type="button">
-              <img 
+            <button
+              style={styles.googleButton}
+              type="button"
+              onClick={() => showInfo('Google login coming soon!')}
+            >
+              <img
                 style={styles.googleIcon}
                 src='https://img.icons8.com/color/48/000000/google-logo.png'
                 alt="google login"
@@ -162,20 +217,9 @@ function Login() {
 
             <div style={styles.backHome}>
               <Link to="/" style={styles.backLink}>
-                Back to Events
+                ← Back to Events
               </Link>
             </div>
-
-            {message && (
-              <div style={{
-                ...styles.message,
-                color: message.includes('successful') ? '#059669' : '#dc2626',
-                backgroundColor: message.includes('successful') ? '#f0fdf4' : '#fef2f2',
-                borderColor: message.includes('successful') ? '#22c55e' : '#ef4444',
-              }}>
-                {message}
-              </div>
-            )}
           </div>
         </div>
 
@@ -188,11 +232,11 @@ function Login() {
             <h1 style={styles.brandTitle}>EventEase</h1>
             <p style={styles.brandSubtitle}>Discover • Connect • Participate</p>
           </div>
-          
+
           <div style={styles.welcomeText}>
             <h2>Welcome Back!</h2>
             <p>Sign in to access your personalized event dashboard and continue discovering amazing opportunities.</p>
-            
+
             <div style={styles.features}>
               <div style={styles.feature}>
                 <span style={styles.featureIcon}>⚡</span>
@@ -212,21 +256,6 @@ function Login() {
               </div>
             </div>
           </div>
-
-          {/* <div style={styles.statsSection}>
-            <div style={styles.stat}>
-              <div style={styles.statNumber}>10K+</div>
-              <div style={styles.statLabel}>Active Students</div>
-            </div>
-            <div style={styles.stat}>
-              <div style={styles.statNumber}>500+</div>
-              <div style={styles.statLabel}>Events Monthly</div>
-            </div>
-            <div style={styles.stat}>
-              <div style={styles.statNumber}>50+</div>
-              <div style={styles.statLabel}>Partner Colleges</div>
-            </div>
-          </div> */}
         </div>
       </div>
     </div>
@@ -235,301 +264,289 @@ function Login() {
 
 const styles = {
   wrapper: {
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    minHeight: "100vh",
-    background: "linear-gradient(135deg, #edf3f2ff 0%, #764ba2 100%)", // Professional gradient
-    padding: "1rem",
+    minHeight: '100vh',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '2rem',
   },
   container: {
-    display: "flex",
-    width: "100%",
-    maxWidth: "1100px",
-    minHeight: "700px",
-    borderRadius: "24px",
-    boxShadow: "0 25px 80px rgba(71, 85, 105, 0.15)",
-    backgroundColor: "rgba(255, 255, 255, 0.98)",
-    backdropFilter: "blur(20px)",
-    overflow: "hidden",
+    display: 'flex',
+    maxWidth: '1100px',
+    width: '100%',
+    background: 'white',
+    borderRadius: '20px',
+    overflow: 'hidden',
+    boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
   },
-
-  // Left Panel Styles (Login Form)
   leftPanel: {
-    flex: "1",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    padding: "2rem",
-    backgroundColor: "rgba(255, 255, 255, 0.98)",
+    flex: '1',
+    padding: '3rem',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
   },
   formContainer: {
-    width: "100%",
-    maxWidth: "400px",
-    margin: "0 auto",
+    maxWidth: '400px',
+    width: '100%',
+    margin: '0 auto',
   },
   title: {
-    fontSize: "2rem",
-    fontWeight: "700",
-    color: "#1e293b",
-    marginBottom: "0.5rem",
-    textAlign: "center",
+    fontSize: '2rem',
+    fontWeight: '700',
+    color: '#1f2937',
+    marginBottom: '0.5rem',
   },
   subtitle: {
-    color: "#64748b",
-    fontSize: "1rem",
-    marginBottom: "2rem",
-    textAlign: "center",
+    fontSize: '1rem',
+    color: '#6b7280',
+    marginBottom: '2rem',
   },
   redirectMessage: {
-    backgroundColor: "#eff6ff",
-    color: "#1d4ed8",
-    padding: "0.75rem",
-    borderRadius: "8px",
-    marginBottom: "1.5rem",
-    border: "1px solid #bfdbfe",
-    fontSize: "0.9rem",
-    textAlign: "center",
+    padding: '1rem',
+    background: '#fef3c7',
+    border: '1px solid #fbbf24',
+    borderRadius: '8px',
+    color: '#92400e',
+    marginBottom: '1.5rem',
+    fontSize: '0.9rem',
+  },
+  eventNotice: {
+    display: 'flex',
+    gap: '1rem',
+    padding: '1rem',
+    background: '#eff6ff',
+    border: '1px solid #3b82f6',
+    borderRadius: '8px',
+    marginBottom: '1.5rem',
+  },
+  eventIcon: {
+    fontSize: '1.5rem',
   },
   form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "1.5rem",
-    marginBottom: "2rem",
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1.5rem',
   },
   inputGroup: {
-    display: "flex",
-    flexDirection: "column",
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
   },
   label: {
-    fontWeight: "600",
-    fontSize: "0.9rem",
-    color: "#374151",
-    marginBottom: "0.5rem",
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    color: '#374151',
   },
   input: {
-    padding: "0.875rem",
-    borderRadius: "10px",
-    border: "2px solid #e2e8f0",
-    fontSize: "1rem",
-    transition: "all 0.3s ease",
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    padding: '0.875rem',
+    border: '2px solid #e5e7eb',
+    borderRadius: '10px',
+    fontSize: '1rem',
+    transition: 'all 0.2s',
+    outline: 'none',
   },
   passwordContainer: {
-    position: "relative",
-    display: "flex",
-    alignItems: "center",
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
   },
   passwordInput: {
-    padding: "0.875rem",
-    paddingRight: "4rem",
-    borderRadius: "10px",
-    border: "2px solid #e2e8f0",
-    fontSize: "1rem",
-    transition: "all 0.3s ease",
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    width: "100%",
+    width: '100%',
+    padding: '0.875rem',
+    paddingRight: '4rem',
+    border: '2px solid #e5e7eb',
+    borderRadius: '10px',
+    fontSize: '1rem',
+    transition: 'all 0.2s',
+    outline: 'none',
   },
   eyeButton: {
-    position: "absolute",
-    right: "0.75rem",
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    fontSize: "0.85rem",
-    color: "#64748b",
-    padding: "0.25rem 0.5rem",
-    borderRadius: "4px",
-    transition: "color 0.3s ease",
-    fontWeight: "500",
+    position: 'absolute',
+    right: '0.75rem',
+    background: 'none',
+    border: 'none',
+    color: '#6b7280',
+    fontSize: '0.875rem',
+    fontWeight: '600',
+    cursor: 'pointer',
+    padding: '0.5rem',
   },
   forgotPassword: {
-    textAlign: "right",
-    marginTop: "-0.5rem",
+    display: 'flex',
+    justifyContent: 'flex-end',
+    marginTop: '-0.5rem',
   },
   forgotButton: {
-    background: "none",
-    border: "none",
-    color: "#3730a3",
-    textDecoration: "underline",
-    cursor: "pointer",
-    fontSize: "0.9rem",
-    fontWeight: "500",
+    background: 'none',
+    border: 'none',
+    color: '#4f46e5',
+    fontSize: '0.875rem',
+    fontWeight: '600',
+    cursor: 'pointer',
+    padding: '0',
   },
   button: {
-    padding: "1rem 2rem",
-    background: "linear-gradient(135deg, #3730a3, #4338ca)",
-    color: "white",
-    border: "none",
-    borderRadius: "12px",
-    cursor: "pointer",
-    fontWeight: "600",
-    fontSize: "1.1rem",
-    marginTop: "0.5rem",
-    transition: "all 0.3s ease",
+    padding: '1rem',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '10px',
+    fontSize: '1rem',
+    fontWeight: '700',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
   },
+  adminNotice: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.5rem',
+    padding: '0.75rem',
+    background: '#f9fafb',
+    borderRadius: '8px',
+    marginTop: '1rem',
+  },
+  adminIcon: {
+    fontSize: '1rem',
+  },
+  adminText: {
+    fontSize: '0.85rem',
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  // ✅ FIXED: Divider with proper line
   divider: {
-    textAlign: "center",
-    margin: "1.5rem 0",
-    position: "relative",
+    position: 'relative',
+    textAlign: 'center',
+    margin: '1.5rem 0',
+    height: '1px',
+    background: '#e5e7eb',
   },
   dividerText: {
-    fontSize: "0.85rem",
-    color: "#64748b",
-    backgroundColor: "rgba(255, 255, 255, 0.98)",
-    padding: "0 1rem",
-    position: "relative",
-    zIndex: 1,
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    background: 'white',
+    padding: '0 1rem',
+    color: '#9ca3af',
+    fontSize: '0.875rem',
+    whiteSpace: 'nowrap',
   },
+  // ✅ FIXED: Google button styling
   googleButton: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "0.75rem",
-    width: "100%",
-    padding: "0.875rem",
-    backgroundColor: "white",
-    border: "2px solid #e2e8f0",
-    borderRadius: "10px",
-    cursor: "pointer",
-    fontSize: "1rem",
-    fontWeight: "500",
-    transition: "all 0.3s ease",
-    marginBottom: "1.5rem",
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.75rem',
+    padding: '0.875rem',
+    background: 'white',
+    border: '2px solid #e5e7eb',
+    borderRadius: '10px',
+    fontSize: '1rem',
+    fontWeight: '600',
+    color: '#374151',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    width: '100%',
   },
   googleIcon: {
-    width: "20px",
-    height: "20px",
+    width: '24px',
+    height: '24px',
   },
   registerLink: {
-    textAlign: "center",
-    fontSize: "0.95rem",
-    color: "#64748b",
-    marginBottom: "1rem",
-  },
-  backHome: {
-    textAlign: "center",
-    marginBottom: "1rem",
-  },
-  backLink: {
-    color: "#64748b",
-    textDecoration: "none",
-    fontSize: "0.9rem",
-    transition: "color 0.3s ease",
+    textAlign: 'center',
+    marginTop: '1.5rem',
+    fontSize: '0.95rem',
+    color: '#6b7280',
   },
   link: {
-    color: "#3730a3",
-    textDecoration: "none",
-    fontWeight: "600",
+    color: '#4f46e5',
+    fontWeight: '600',
+    textDecoration: 'none',
   },
-  message: {
-    padding: "1rem",
-    borderRadius: "8px",
-    fontSize: "0.9rem",
-    fontWeight: "500",
-    textAlign: "center",
-    border: "1px solid",
-    marginTop: "1rem",
+  backHome: {
+    textAlign: 'center',
+    marginTop: '1rem',
   },
-
-  // Right Panel Styles (Branding)
+  backLink: {
+    color: '#6b7280',
+    fontSize: '0.9rem',
+    textDecoration: 'none',
+    transition: 'color 0.2s',
+  },
   rightPanel: {
-    flex: "1",
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    color: "white",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: "3rem 2rem",
-    textAlign: "center",
-    position: "relative",
+    flex: '1',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    color: 'white',
+    padding: '3rem',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   logoSection: {
-    marginBottom: "2rem",
+    textAlign: 'center',
+    marginBottom: '3rem',
   },
   brandLogo: {
-    marginBottom: "1.5rem",
+    marginBottom: '1.5rem',
   },
   logoIcon: {
-    width: "80px",
-    height: "80px",
-    background: "rgba(255, 255, 255, 0.2)",
-    borderRadius: "20px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "2.5rem",
-    fontWeight: "700",
-    margin: "0 auto",
-    backdropFilter: "blur(10px)",
-    border: "2px solid rgba(255, 255, 255, 0.3)",
+    width: '80px',
+    height: '80px',
+    background: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: '20px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '2.5rem',
+    fontWeight: '700',
+    margin: '0 auto',
+    backdropFilter: 'blur(10px)',
   },
   brandTitle: {
-    fontSize: "2.5rem",
-    fontWeight: "700",
-    margin: "1rem 0 0.5rem 0",
-    textShadow: "2px 2px 4px rgba(0, 0, 0, 0.2)",
+    fontSize: '2.5rem',
+    fontWeight: '700',
+    margin: '0 0 0.5rem 0',
   },
   brandSubtitle: {
-    fontSize: "1.1rem",
-    opacity: "0.9",
-    fontWeight: "500",
+    fontSize: '1.125rem',
+    opacity: '0.9',
+    margin: '0',
   },
   welcomeText: {
-    maxWidth: "300px",
-    marginBottom: "2rem",
+    textAlign: 'center',
+  },
+  welcomeTextH2: {
+    fontSize: '1.875rem',
+    fontWeight: '700',
+    marginBottom: '1rem',
+  },
+  welcomeTextP: {
+    fontSize: '1.05rem',
+    opacity: '0.9',
+    lineHeight: '1.6',
   },
   features: {
-    marginTop: "1.5rem",
-    display: "flex",
-    flexDirection: "column",
-    gap: "0.875rem",
+    marginTop: '2rem',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1rem',
   },
   feature: {
-    display: "flex",
-    alignItems: "center",
-    gap: "0.75rem",
-    fontSize: "0.95rem",
-    opacity: "0.9",
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    fontSize: '1rem',
+    opacity: '0.95',
   },
   featureIcon: {
-    fontSize: "1.1rem",
-  },
-  statsSection: {
-    display: "flex",
-    justifyContent: "space-around",
-    width: "100%",
-    maxWidth: "350px",
-    marginTop: "2rem",
-  },
-  stat: {
-    textAlign: "center",
-  },
-  statNumber: {
-    fontSize: "1.5rem",
-    fontWeight: "700",
-    marginBottom: "0.25rem",
-  },
-  statLabel: {
-    fontSize: "0.8rem",
-    opacity: "0.8",
-  },
-
-  // Responsive Design
-  "@media (max-width: 768px)": {
-    container: {
-      flexDirection: "column-reverse",
-      minHeight: "auto",
-    },
-    leftPanel: {
-      padding: "2rem 1rem",
-    },
-    rightPanel: {
-      padding: "2rem 1rem",
-      minHeight: "300px",
-    },
+    fontSize: '1.5rem',
   },
 };
+
 
 export default Login;

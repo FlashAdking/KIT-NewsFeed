@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useToast } from './components/ToastProvider'; 
 
 function Register() {
   const [formData, setFormData] = useState({
@@ -8,22 +9,24 @@ function Register() {
     password: "",
     confirmPassword: "",
     collegeName: "",
-    role: "student", // ✅ ADDED: Explicit default role
+    role: "student",
   });
 
-  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [collegeList, setCollegeList] = useState([]);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const navigate = useNavigate();
+  const { showSuccess, showError, showWarning, showInfo } = useToast();
 
   useEffect(() => {
-    // Simulating API call — you can replace with actual fetch
     fetch("/college-list.json")
       .then((res) => res.json())
       .then((data) => setCollegeList(data))
-      .catch((err) => console.error("College fetch error:", err));
+      .catch((err) => {
+        console.error("College fetch error:", err);
+        showWarning("Could not load college list. You can still type your college name.");
+      });
   }, []);
 
   const handleChange = (e) => {
@@ -42,7 +45,6 @@ function Register() {
     setShowConfirmPassword(!showConfirmPassword);
   };
 
-  // ✅ ENHANCED: Clear form function with role reset
   const clearForm = () => {
     setFormData({
       fullName: "",
@@ -50,86 +52,55 @@ function Register() {
       password: "",
       confirmPassword: "",
       collegeName: "",
-      role: "student", // ✅ Always reset to student
+      role: "student",
     });
   };
 
   const handleRegister = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setMessage("");
 
-    // ✅ ENHANCED: Better validation
+    // Validation
     if (!formData.fullName.trim()) {
-      setMessage("Please enter your full name");
+      showError("Please enter your full name");
       setLoading(false);
       return;
     }
 
     if (!formData.email.trim()) {
-      setMessage("Please enter your email address");
+      showError("Please enter your email address");
       setLoading(false);
       return;
     }
 
     if (!formData.collegeName || formData.collegeName === "") {
-      setMessage("Please select a college");
+      showError("Please select a college");
       setLoading(false);
       return;
     }
 
     if (formData.password !== formData.confirmPassword) {
-      setMessage("Passwords do not match");
+      showError("Passwords do not match");
       setLoading(false);
       return;
     }
 
     if (formData.password.length < 6) {
-      setMessage("Password must be at least 6 characters long");
+      showError("Password must be at least 6 characters long");
       setLoading(false);
       return;
     }
 
     try {
-      // ✅ ENHANCED: Ensure role is always explicitly set
       const registrationData = {
         fullName: formData.fullName.trim(),
         email: formData.email.trim().toLowerCase(),
         password: formData.password,
         collegeName: formData.collegeName.trim(),
-        role: formData.role || "student", // ✅ Explicit fallback
+        role: formData.role || "student",
       };
 
-      // 🔍 ENHANCED DEBUGGING
-      console.log("📤 Frontend form data:", formData);
-      console.log("📤 Cleaned registration data:", registrationData);
-      console.log("📤 JSON string:", JSON.stringify(registrationData));
-      console.log("📤 Role verification:", {
-        formDataRole: formData.role,
-        registrationDataRole: registrationData.role,
-        roleType: typeof registrationData.role
-      });
-
-      // Check for empty values
-      Object.entries(registrationData).forEach(([key, value]) => {
-        if (!value || value === "") {
-          console.warn(`⚠️ ${key} is empty:`, value);
-        }
-        if (typeof value === 'string' && value !== value.trim()) {
-          console.warn(`⚠️ ${key} has whitespace:`, `"${value}"`);
-        }
-      });
-
-      // ✅ Verify the payload matches Postman exactly
-      console.log("📤 Payload comparison with Postman:");
-      console.log("Frontend:", JSON.stringify(registrationData, null, 2));
-      console.log("Expected (like Postman):", JSON.stringify({
-        fullName: "Test User",
-        email: "newtest@example.com",
-        password: "TestPass123",
-        collegeName: "Test College",
-        role: "student"
-      }, null, 2));
+      console.log("📤 Registration data:", registrationData);
 
       const response = await fetch("http://localhost:8080/api/auth/register", {
         method: "POST",
@@ -142,49 +113,47 @@ function Register() {
 
       const result = await response.json();
       console.log("📥 Registration response:", result);
-      console.log("📥 Response status:", response.status);
 
       if (response.ok && result.success) {
-        setMessage("Registration successful! Redirecting to login...");
+        showSuccess("Registration successful! Redirecting to login...");
         
-        // Store user data if needed
+        // Store user data if tokens are returned
         if (result.data && result.data.token) {
           localStorage.setItem('token', result.data.token);
           localStorage.setItem('userData', JSON.stringify(result.data.user));
-          console.log("✅ Tokens stored in localStorage");
         }
 
-        // Clear form and redirect
         clearForm();
         setTimeout(() => {
-          navigate("/login");
+          navigate("/login", { 
+            state: { 
+              message: "Account created successfully! Please login to continue." 
+            } 
+          });
         }, 2000);
       } else {
-        console.error("❌ Registration failed!");
-        console.error("❌ Status:", response.status);
-        console.error("❌ Error object:", result);
+        console.error("❌ Registration failed:", result);
         
         if (result.details && Array.isArray(result.details)) {
           const errorMessages = result.details.map(error => 
             `${error.path || 'Field'}: ${error.msg}`
           ).join(", ");
-          setMessage(`Validation failed: ${errorMessages}`);
+          showError(`Validation failed: ${errorMessages}`);
         } else if (result.error) {
-          // Check for specific error types
-          if (result.error.includes('email already exists')) {
-            setMessage("This email is already registered. Try logging in or use a different email.");
-          } else if (result.error.includes('username already taken')) {
-            setMessage("Username is already taken. Please choose a different one.");
+          if (result.error.includes('email already exists') || result.error.includes('email') && result.error.includes('exists')) {
+            showError("This email is already registered. Try logging in instead.");
+          } else if (result.error.includes('username already taken') || result.error.includes('username') && result.error.includes('exists')) {
+            showError("Username is already taken. Please choose a different one.");
           } else {
-            setMessage(result.error);
+            showError(result.error);
           }
         } else {
-          setMessage(result.message || "Registration failed. Please try again.");
+          showError(result.message || "Registration failed. Please try again.");
         }
       }
     } catch (err) {
       console.error("💥 Registration error:", err);
-      setMessage("Network error. Please check if the server is running.");
+      showError("Network error. Please check if the server is running.");
     } finally {
       setLoading(false);
     }
@@ -280,15 +249,8 @@ function Register() {
                 </select>
               </div>
 
-              {/* ✅ ADDED: Hidden role field to ensure it's always sent */}
-              <input
-                type="hidden"
-                name="role"
-                value="student"
-                onChange={handleChange}
-              />
+              <input type="hidden" name="role" value="student" />
 
-              {/* ✅ OPTIONAL: Visible role selection (if you want users to choose) */}
               <div style={styles.inputGroup}>
                 <label style={styles.label}>Account Type</label>
                 <select
@@ -296,10 +258,9 @@ function Register() {
                   value={formData.role}
                   onChange={handleChange}
                   style={styles.select}
-                  disabled={true} // Disabled since we only support student registration
+                  disabled={true}
                 >
                   <option value="student">Student</option>
-                  {/* <option value="admin">Admin</option> */}
                 </select>
               </div>
 
@@ -326,7 +287,6 @@ function Register() {
                     {showPassword ? "Hide" : "Show"}
                   </button>
                 </div>
-                {/* Password strength indicator */}
                 {formData.password && (
                   <div style={{
                     marginTop: '0.5rem',
@@ -360,7 +320,6 @@ function Register() {
                     {showConfirmPassword ? "Hide" : "Show"}
                   </button>
                 </div>
-                {/* Password match indicator */}
                 {formData.confirmPassword && (
                   <div style={{
                     marginTop: '0.5rem',
@@ -389,7 +348,12 @@ function Register() {
               <span style={styles.dividerText}>Or continue with</span>
             </div>
 
-            <button style={styles.googleButton} type="button" disabled={loading}>
+            <button 
+              style={styles.googleButton} 
+              type="button" 
+              disabled={loading}
+              onClick={() => showInfo('Google login coming soon!')}
+            >
               <img
                 style={styles.googleIcon}
                 src="https://img.icons8.com/color/48/000000/google-logo.png"
@@ -405,16 +369,11 @@ function Register() {
               </Link>
             </div>
 
-            {message && (
-              <div style={{
-                ...styles.message,
-                color: message.includes('successful') ? '#059669' : '#dc2626',
-                backgroundColor: message.includes('successful') ? '#f0fdf4' : '#fef2f2',
-                borderColor: message.includes('successful') ? '#22c55e' : '#ef4444',
-              }}>
-                {message}
-              </div>
-            )}
+            <div style={styles.backHome}>
+              <Link to="/" style={styles.backLink}>
+                ← Back to Events
+              </Link>
+            </div>
           </div>
         </div>
       </div>
@@ -422,7 +381,6 @@ function Register() {
   );
 }
 
-// Styles remain the same...
 const styles = {
   wrapper: {
     display: "flex",
@@ -648,19 +606,20 @@ const styles = {
     color: "#64748b",
     marginBottom: "1rem",
   },
+  backHome: {
+    textAlign: "center",
+    marginBottom: "1rem",
+  },
+  backLink: {
+    color: "#64748b",
+    textDecoration: "none",
+    fontSize: "0.9rem",
+    transition: "color 0.3s ease",
+  },
   link: {
     color: "#3730a3",
     textDecoration: "none",
     fontWeight: "600",
-  },
-  message: {
-    padding: "1rem",
-    borderRadius: "8px",
-    fontSize: "0.9rem",
-    fontWeight: "500",
-    textAlign: "center",
-    border: "1px solid",
-    marginTop: "1rem",
   },
 };
 
