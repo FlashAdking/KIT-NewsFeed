@@ -1,30 +1,30 @@
+// src/middleware/authMiddleware.ts
 import { Request, Response, NextFunction } from 'express';
-import { AuthService } from '../services/AuthService';
+// If you moved verifiers to utils/jwt:
+import { verifyAccessToken } from '../utils/jwt'; // ← adjust path as needed
 
+declare global {
+  namespace Express {
+    interface Request {
+      user?: any;
+    }
+  }
+}
 
-
-// Rest of your middleware code...
-export const authenticateToken = async (req: Request, res: Response, next: NextFunction) => {
+export async function authenticateToken(req: Request, res: Response, next: NextFunction) {
   try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(' ')[1];
-
+    const auth = req.header('Authorization') || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : undefined;
     if (!token) {
-      return res.status(401).json({ 
-        error: 'Access token required',
-        message: 'Please provide a valid access token'
-      });
+      return res.status(401).json({ success: false, error: 'Authorization token missing' });
     }
 
-    const decoded = AuthService.verifyToken(token);
-    const user = await AuthService.getUserById(decoded.userId);
+    // Use the existing verifier
+    const decoded = verifyAccessToken(token); // ← was AuthService.verifyToken
+    req.user = decoded; // contains userId, role, tokenType, iat, exp
 
-    req.user = user; // TypeScript now knows this property exists
-    next();
-  } catch (error: any) {
-    return res.status(403).json({ 
-      error: 'Invalid token',
-      message: error.message
-    });
+    return next();
+  } catch (err: any) {
+    return res.status(401).json({ success: false, error: 'Invalid or expired token' });
   }
-};
+}

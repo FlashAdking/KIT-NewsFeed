@@ -8,8 +8,8 @@ const router = Router();
 
 // Public routes
 router.get('/', PostController.getAllPosts);
-router.get('/:id', PostController.getPostById);
 router.get('/:id/stats', PostController.getEventStats);
+router.get('/:id', PostController.getPostById);
 
 // Protected routes
 router.use(authenticateToken);
@@ -25,7 +25,7 @@ router.delete('/:id', canDeletePost, PostController.deletePost);
 router.post('/:id/like', PostController.toggleLike);
 router.post('/:id/view', PostController.incrementView);
 
-// Admin routes
+// Admin
 router.get('/moderation/pending', allowRoles('admin'), PostController.getPendingPosts);
 router.post('/:id/moderate', canModeratePost, PostController.moderatePost);
 

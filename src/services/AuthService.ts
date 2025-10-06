@@ -1,222 +1,129 @@
-import bcrypt from 'bcrypt';
-import jwt, { SignOptions } from 'jsonwebtoken';
 import { User } from '../models/User';
 import { IUser } from '../models/interfaces/IUser';
+// Correct if functions are in utils/jwt.ts
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt';
+type Role = 'student' | 'admin';
 
 export class AuthService {
-    private static readonly JWT_SECRET: string = process.env.JWT_SECRET || 'your-secret-key';
-    private static readonly JWT_EXPIRES_IN: string = process.env.JWT_EXPIRES_IN || '7d';
-    private static readonly REFRESH_TOKEN_EXPIRES_IN: string = '30d';
-
-    // Generate JWT token - Fixed with proper typing
-    static generateToken(userId: string, role: string): string {
-        return jwt.sign(
-            { userId, role },
-            this.JWT_SECRET,
-            { expiresIn: this.JWT_EXPIRES_IN } as any // Force any type
-        );
+  // Register new user
+  static async register(userData: {
+    fullName: string;
+    email: string;
+    username?: string;
+    password: string;
+    role: Role;
+    semester?: number;
+    collegeName: string;
+    department?: string;
+  }) {
+    const or: any[] = [{ email: userData.email }];
+    if (userData.username && userData.username.trim() !== '') {
+      or.push({ username: userData.username });
     }
 
-    // Generate refresh token - Fixed with proper typing
-    static generateRefreshToken(userId: string): string {
-        return jwt.sign(
-            { userId },
-            this.JWT_SECRET,
-            { expiresIn: this.REFRESH_TOKEN_EXPIRES_IN } as any // Force any type
-        );
+    const existingUser = await User.findOne({ $or: or });
+    if (existingUser) {
+      const err: any = new Error('User with this email or username already exists');
+      err.code = 11000;
+      err.keyPattern = existingUser.email === userData.email ? { email: 1 } : { username: 1 };
+      err.keyValue = existingUser.email === userData.email ? { email: userData.email } : { username: userData.username };
+      throw err;
     }
 
-    // Verify JWT token
-    static verifyToken(token: string): any {
-        try {
-            return jwt.verify(token, this.JWT_SECRET);
-        } catch (error) {
-            throw new Error('Invalid or expired token');
-        }
-    }
+    const user = new User(userData);
+    await user.save();
 
-    // Register new user
-    static async register(userData: {
-        fullName: string;
-        email: string;
-        username: string;
-        password: string;
-        role: 'student' | 'faculty' | 'admin';
-        semester?: number;
-        collegeName: string;
-        department: string;
-        employeeId?: string;
-        designation?: string;
-    }) {
-        try {
-            // Check if user already exists
-            const existingUser = await User.findOne({
-                $or: [{ email: userData.email }, { username: userData.username }]
-            });
+    const token = signAccessToken(user._id.toString(), user.role as Role);
+    const refreshToken = signRefreshToken(user._id.toString());
 
-            if (existingUser) {
-                throw new Error('User with this email or username already exists');
-            }
+    const { password, ...userResponse } = user.toObject();
 
-            // Prepare user data with role-specific profiles
-            const newUserData: any = { ...userData };
+    return {
+      data: {
+        user: userResponse,
+        token,
+        refreshToken,
+      },
+    };
+  }
 
-            // If faculty, add pending approval status
-            if (userData.role === 'faculty') {
-                newUserData.facultyProfile = {
-                    isApproved: false,
-                    department: userData.department,
-                    employeeId: userData.employeeId,
-                    designation: userData.designation
-                };
-            }
+  // Login user
+  static async login(email: string, password: string) {
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) throw new Error('Invalid email or password');
+    if (!user.isActive) throw new Error('Account is deactivated. Please contact admin.');
 
-            // Create new user
-            const user = new User(newUserData);
-            await user.save();
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) throw new Error('Invalid email or password');
 
-            // Generate tokens
-            const token = this.generateToken(user._id.toString(), user.role);
-            const refreshToken = this.generateRefreshToken(user._id.toString());
+    user.lastLogin = new Date();
+    await user.save();
 
-            // Remove password from response
-            const { password, ...userResponse } = user.toObject();
+    const token = signAccessToken(user._id.toString(), user.role as Role);
+    const refreshToken = signRefreshToken(user._id.toString());
 
-            // Different message based on role
-            const message = userData.role === 'faculty'
-                ? 'Faculty registration submitted. Please wait for admin approval before you can create posts.'
-                : 'User registered successfully';
+    const { password: _, ...userResponse } = user.toObject();
 
-            return {
-                message,
-                user: userResponse,
-                token,
-                refreshToken,
-                requiresApproval: userData.role === 'faculty'
-            };
-        } catch (error: any) {
-            throw new Error(error.message || 'Registration failed');
-        }
-    }
+    return {
+      data: {
+        user: userResponse,
+        token,
+        refreshToken,
+      },
+    };
+  }
 
+  // Get user by ID
+  static async getUserById(userId: string) {
+    const user = await User.findById(userId).select('-password');
+    if (!user) throw new Error('User not found');
+    return user;
+  }
 
-    // Login user
-    static async login(email: string, password: string) {
-        try {
-            // Find user with password field
-            const user = await User.findOne({ email }).select('+password');
+  // Update user profile
+  static async updateProfile(userId: string, updateData: Partial<IUser>) {
+    const { password, role, isVerified, ...allowedUpdates } = updateData;
 
-            if (!user) {
-                throw new Error('Invalid email or password');
-            }
+    const user = await User.findByIdAndUpdate(
+      userId,
+      allowedUpdates,
+      { new: true, runValidators: true }
+    ).select('-password');
 
-            // Check if user is active
-            if (!user.isActive) {
-                throw new Error('Account is deactivated. Please contact admin.');
-            }
+    if (!user) throw new Error('User not found');
 
-            // Compare password
-            const isPasswordValid = await user.comparePassword(password);
-            if (!isPasswordValid) {
-                throw new Error('Invalid email or password');
-            }
+    return {
+      data: { user },
+    };
+  }
 
-            // Update last login
-            user.lastLogin = new Date();
-            await user.save();
+  // Change password
+  static async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await User.findById(userId).select('+password');
+    if (!user) throw new Error('User not found');
 
-            // Generate tokens
-            const token = this.generateToken(user._id.toString(), user.role);
-            const refreshToken = this.generateRefreshToken(user._id.toString());
+    const isCurrentPasswordValid = await user.comparePassword(currentPassword);
+    if (!isCurrentPasswordValid) throw new Error('Current password is incorrect');
 
-            // Remove password from response
-            const { password: _, ...userResponse } = user.toObject();
+    user.password = newPassword; // pre('save') will hash in schema
+    await user.save();
 
-            return {
-                message: 'Login successful',
-                user: userResponse,
-                token,
-                refreshToken
-            };
-        } catch (error: any) {
-            throw new Error(error.message || 'Login failed');
-        }
-    }
+    return { data: {} };
+  }
 
-    // Get user by ID
-    static async getUserById(userId: string) {
-        try {
-            const user = await User.findById(userId).select('-password');
-            if (!user) {
-                throw new Error('User not found');
-            }
-            return user;
-        } catch (error: any) {
-            throw new Error(error.message || 'Failed to fetch user');
-        }
-    }
+  // Refresh token
+  static async refreshToken(refreshToken: string) {
+    const decoded = verifyRefreshToken(refreshToken);
+    const user = await this.getUserById(decoded.userId as string);
 
-    // Update user profile
-    static async updateProfile(userId: string, updateData: Partial<IUser>) {
-        try {
-            const { password, role, isVerified, ...allowedUpdates } = updateData;
+    const newToken = signAccessToken(user._id.toString(), user.role as Role);
+    const newRefreshToken = signRefreshToken(user._id.toString());
 
-            const user = await User.findByIdAndUpdate(
-                userId,
-                allowedUpdates,
-                { new: true, runValidators: true }
-            ).select('-password');
-
-            if (!user) {
-                throw new Error('User not found');
-            }
-
-            return {
-                message: 'Profile updated successfully',
-                user
-            };
-        } catch (error: any) {
-            throw new Error(error.message || 'Profile update failed');
-        }
-    }
-
-    // Change password
-    static async changePassword(userId: string, currentPassword: string, newPassword: string) {
-        try {
-            const user = await User.findById(userId).select('+password');
-            if (!user) {
-                throw new Error('User not found');
-            }
-
-            const isCurrentPasswordValid = await user.comparePassword(currentPassword);
-            if (!isCurrentPasswordValid) {
-                throw new Error('Current password is incorrect');
-            }
-
-            user.password = newPassword;
-            await user.save();
-
-            return { message: 'Password changed successfully' };
-        } catch (error: any) {
-            throw new Error(error.message || 'Password change failed');
-        }
-    }
-
-    // Refresh token
-    static async refreshToken(refreshToken: string) {
-        try {
-            const decoded = this.verifyToken(refreshToken);
-            const user = await this.getUserById(decoded.userId);
-
-            const newToken = this.generateToken(user._id.toString(), user.role);
-            const newRefreshToken = this.generateRefreshToken(user._id.toString());
-
-            return {
-                token: newToken,
-                refreshToken: newRefreshToken
-            };
-        } catch (error: any) {
-            throw new Error('Invalid refresh token');
-        }
-    }
+    return {
+      data: {
+        token: newToken,
+        refreshToken: newRefreshToken,
+      },
+    };
+  }
 }

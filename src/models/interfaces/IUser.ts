@@ -4,13 +4,13 @@ export interface IUser extends Document {
   _id: Types.ObjectId;
   fullName: string;
   email: string;
-  username: string;
+  username?: string;
   password: string; 
   role: 'student'| 'admin';
   
   semester?: number; 
   collegeName: string;
-  department: string;
+  department?: string;
 
   // Admin profile
   adminProfile?: {

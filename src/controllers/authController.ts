@@ -1,6 +1,31 @@
-import { Request, Response } from 'express';
-import { validationResult } from 'express-validator';
-import { AuthService } from '../services/AuthService';
+import { Request, Response, NextFunction } from "express";
+import { validationResult } from "express-validator";
+import { AuthService } from "../services/AuthService";
+import { User } from "../models/User";
+
+function validationErrors(req: Request) {
+  const result = validationResult(req);
+  if (!result.isEmpty()) {
+    return result.array({ onlyFirstError: true });
+  }
+  return null;
+}
+
+function isDuplicateKey(err: any) {
+  return err && (err.code === 11000 || (err.name === "MongoServerError" && err.code === 11000));
+}
+
+function duplicateKeyMessage(err: any) {
+  const key = Object.keys(err?.keyPattern || err?.keyValue || {})[0] || "field";
+  return `${key} already exists`;
+}
+
+const sanitizeUser = (u: any) => {
+  if (!u) return null;
+  const src = (typeof u?.toObject === "function" ? u.toObject() : u) as any;
+  const { password, __v, resetToken, resetTokenExpires, ...rest } = src;
+  return rest;
+};
 
 declare global {
   namespace Express {
@@ -9,162 +34,212 @@ declare global {
     }
   }
 }
+
 export class AuthController {
-  // Register new user
-  static async register(req: Request, res: Response) {
+  static async register(req: Request, res: Response, _next: NextFunction) {
     try {
-      // Check validation errors
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
+      const errors = validationErrors(req);
+      if (errors) {
         return res.status(400).json({
-          error: 'Validation failed',
-          details: errors.array()
+          success: false,
+          message: "Validation failed",
+          details: errors,
         });
       }
 
-      const userData = req.body;
+      const userData = {
+        fullName: req.body.fullName,
+        email: req.body.email,
+        username: req.body.username,
+        password: req.body.password,
+        role: req.body.role,
+        collegeName: req.body.collegeName,
+        department: req.body.department,
+        semester: req.body.semester,
+      };
+
       const result = await AuthService.register(userData);
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
-        ...result
+        message: "Registered successfully",
+        ...result,
       });
     } catch (error: any) {
-      res.status(400).json({
+      if (isDuplicateKey(error)) {
+        return res.status(409).json({
+          success: false,
+          error: duplicateKeyMessage(error),
+        });
+      }
+      return res.status(400).json({
         success: false,
-        error: error.message
+        error: error?.message || "Registration failed",
       });
     }
   }
 
-  // Login user
-  static async login(req: Request, res: Response) {
+  static async login(req: Request, res: Response, _next: NextFunction) {
     try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
+      const errors = validationErrors(req);
+      if (errors) {
         return res.status(400).json({
-          error: 'Validation failed',
-          details: errors.array()
+          success: false,
+          message: "Validation failed",
+          details: errors,
         });
       }
 
       const { email, password } = req.body;
       const result = await AuthService.login(email, password);
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
-        ...result
+        message: "Login successful",
+        ...result,
       });
     } catch (error: any) {
-      res.status(401).json({
+      return res.status(401).json({
         success: false,
-        error: error.message
+        error: error?.message || "Invalid credentials",
       });
     }
   }
 
-  // Get current user profile
-  static async getProfile(req: Request, res: Response) {
+  static async getProfile(req: Request, res: Response, _next: NextFunction) {
     try {
-      res.status(200).json({
-        success: true,
-        user: req.user
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-  }
-
-  // Update user profile
-  static async updateProfile(req: Request, res: Response) {
-    try {
-      const userId = req.user._id;
-      const updateData = req.body;
-
-      const result = await AuthService.updateProfile(userId, updateData);
-
-      res.status(200).json({
-        success: true,
-        ...result
-      });
-    } catch (error: any) {
-      res.status(400).json({
-        success: false,
-        error: error.message
-      });
-    }
-  }
-
-  // Change password
-  static async changePassword(req: Request, res: Response) {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          error: 'Validation failed',
-          details: errors.array()
-        });
+      if (!req.user) {
+        return res.status(401).json({ success: false, error: "Unauthorized" });
       }
 
-      const userId = req.user._id;
-      const { currentPassword, newPassword } = req.body;
+      const current = req.user as any;
+      const maybeId = current.userId || current._id || current.id;
 
-      const result = await AuthService.changePassword(userId, currentPassword, newPassword);
+      let userObj: any = null;
 
-      res.status(200).json({
-        success: true,
-        ...result
-      });
+      const needsHydrate = !!maybeId && (!("email" in current) || !("username" in current));
+      if (needsHydrate) {
+        const fresh = await User.findById(maybeId).select("-password -__v").lean();
+        userObj = sanitizeUser(fresh);
+      } else {
+        userObj = sanitizeUser(current);
+      }
+
+      if (!userObj) {
+        return res.status(404).json({ success: false, error: "User not found" });
+      }
+
+      return res.status(200).json({ success: true, user: userObj });
     } catch (error: any) {
-      res.status(400).json({
+      return res.status(500).json({
         success: false,
-        error: error.message
+        error: error?.message || "Failed to fetch profile",
       });
     }
   }
 
-  // Refresh token
-  static async refreshToken(req: Request, res: Response) {
+  static async updateProfile(req: Request, res: Response, _next: NextFunction) {
     try {
-      const { refreshToken } = req.body;
+      if (!req.user?._id) {
+        return res.status(401).json({ success: false, error: "Unauthorized" });
+      }
 
-      if (!refreshToken) {
+      const { fullName, collegeName, department, semester, profilePicture, bio, phone } = req.body;
+
+      const updateData: any = {
+        ...(fullName !== undefined && { fullName }),
+        ...(collegeName !== undefined && { collegeName }),
+        ...(department !== undefined && { department }),
+        ...(semester !== undefined && { semester }),
+        ...(profilePicture !== undefined && { profilePicture }),
+        ...(bio !== undefined && { bio }),
+        ...(phone !== undefined && { phone }),
+      };
+
+      const result = await AuthService.updateProfile(req.user._id, updateData);
+
+      return res.status(200).json({
+        success: true,
+        message: "Profile updated",
+        ...result,
+      });
+    } catch (error: any) {
+      if (isDuplicateKey(error)) {
+        return res.status(409).json({
+          success: false,
+          error: duplicateKeyMessage(error),
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        error: error?.message || "Update failed",
+      });
+    }
+  }
+
+  static async changePassword(req: Request, res: Response, _next: NextFunction) {
+    try {
+      const errors = validationErrors(req);
+      if (errors) {
         return res.status(400).json({
           success: false,
-          error: 'Refresh token is required'
+          message: "Validation failed",
+          details: errors,
         });
+      }
+      if (!req.user?._id) {
+        return res.status(401).json({ success: false, error: "Unauthorized" });
+      }
+
+      const { currentPassword, newPassword } = req.body;
+      const result = await AuthService.changePassword(req.user._id, currentPassword, newPassword);
+
+      return res.status(200).json({
+        success: true,
+        message: "Password changed successfully",
+        ...result,
+      });
+    } catch (error: any) {
+      return res.status(400).json({
+        success: false,
+        error: error?.message || "Password change failed",
+      });
+    }
+  }
+
+  static async refreshToken(req: Request, res: Response, _next: NextFunction) {
+    try {
+      const { refreshToken } = req.body;
+      if (!refreshToken) {
+        return res.status(400).json({ success: false, error: "Refresh token is required" });
       }
 
       const result = await AuthService.refreshToken(refreshToken);
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
-        ...result
+        message: "Token refreshed",
+        ...result,
       });
     } catch (error: any) {
-      res.status(401).json({
+      return res.status(401).json({
         success: false,
-        error: error.message
+        error: error?.message || "Invalid refresh token",
       });
     }
   }
 
-  // Logout (client-side token deletion)
-  static async logout(req: Request, res: Response) {
+  static async logout(_req: Request, res: Response, _next: NextFunction) {
     try {
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
-        message: 'Logged out successfully. Please delete your tokens from client storage.'
+        message: "Logged out successfully. Please delete tokens from client storage.",
       });
     } catch (error: any) {
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
-        error: error.message
+        error: error?.message || "Logout failed",
       });
     }
   }
 }
-

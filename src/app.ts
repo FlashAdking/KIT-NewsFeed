@@ -38,7 +38,7 @@ app.get('/', (req: Request, res: Response) => {
 });
 
 
-// Admin routess
+
 // API Routes
 app.use('/api/admin', adminRoutes);
 app.use('/api/club-representative', clubRepresentativeRoutes);

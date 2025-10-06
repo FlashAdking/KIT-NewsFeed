@@ -12,7 +12,7 @@
   },
   "include": [
     "src/**/*"
-, "script"  ],
+, "script", "newsfeed/src/components"  ],
   "exclude": [
     "node_modules",
     "dist"

@@ -11,9 +11,12 @@ export const registerValidation = [
     .normalizeEmail()
     .withMessage('Please provide a valid email address'),
 
+  // username is optional; validate only if provided
   body('username')
+    .optional()
     .trim()
     .isLength({ min: 3, max: 30 })
+    .withMessage('Username must be 3-30 characters and contain only letters and numbers')
     .isAlphanumeric()
     .withMessage('Username must be 3-30 characters and contain only letters and numbers'),
 
@@ -24,37 +27,29 @@ export const registerValidation = [
     .withMessage('Password must contain at least one lowercase letter, one uppercase letter, and one number'),
 
   body('role')
-    .isIn(['student', 'faculty', 'admin'])
-    .withMessage('Role must be either student, faculty, or admin'),
+    .isIn(['student', 'admin'])
+    .withMessage('Role must be either student or admin'),
 
   body('collegeName')
     .trim()
     .isLength({ min: 2, max: 100 })
     .withMessage('College name is required'),
 
+  // department is optional; validate only if provided
   body('department')
+    .optional()
     .trim()
     .isLength({ min: 2, max: 100 })
-    .withMessage('Department is required'),
+    .withMessage('Department is too short'),
 
   body('semester')
     .optional()
     .isInt({ min: 1, max: 8 })
-    .withMessage('Semester must be between 1 and 8'),
-
-  // Add faculty-specific validation
-  body('employeeId')
-    .if(body('role').equals('faculty'))
-    .notEmpty()
-    .withMessage('Employee ID is required for faculty registration'),
-
-  body('designation')
-    .if(body('role').equals('faculty'))
-    .isIn(['Professor', 'Associate Professor', 'Assistant Professor', 'Lecturer', 'Lab Assistant'])
-    .withMessage('Valid designation is required for faculty')
-
+    .withMessage('Semester must be between 1 and 8')
+    .toInt(), // coerce to number for downstream code
 ];
 
+// unchanged
 export const loginValidation = [
   body('email')
     .isEmail()
@@ -63,7 +58,7 @@ export const loginValidation = [
 
   body('password')
     .notEmpty()
-    .withMessage('Password is required')
+    .withMessage('Password is required'),
 ];
 
 export const changePasswordValidation = [
@@ -75,6 +70,5 @@ export const changePasswordValidation = [
     .isLength({ min: 6 })
     .withMessage('New password must be at least 6 characters long')
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-    .withMessage('New password must contain at least one lowercase letter, one uppercase letter, and one number')
-
+    .withMessage('New password must contain at least one lowercase letter, one uppercase letter, and one number'),
 ];

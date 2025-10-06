@@ -8,38 +8,35 @@ export interface IPost extends Document {
     media?: {
         type: 'image' | 'document';
         url: string;
-        filename: string;
-        size: number;
+        filename?: string;        // ✅ FIXED: Made optional for external URLs
+        size?: number;            // ✅ FIXED: Made optional for external URLs
         originalSize?: number;
         compressionRatio?: number;
-        dimensions? : {
-            width : number;
-            height : number;
+        dimensions?: {
+            width: number;
+            height: number;
         };
     }[];
 
-    createdBy: Types.ObjectId;
-    authorType: 'club' | 'faculty';
+    createdBy?: Types.ObjectId;   // ✅ FIXED: Made optional
+    authorType: 'club' | 'faculty' | 'admin';  // ✅ ADDED: 'admin'
     clubId?: Types.ObjectId;
 
-    categoryId: Types.ObjectId;
+    categoryId?: Types.ObjectId;  // ✅ FIXED: Made optional
     postType: 'announcement' | 'event' | 'news' | 'general';
     priority: 'low' | 'medium' | 'high';
 
-    // ✅ UPDATED: Enhanced eventDetails
     eventDetails?: {
-        eventDate: Date;
-        venue: string;
-        registrationRequired: boolean;
+        eventDate?: Date;          // ✅ FIXED: Made optional at type level
+        venue?: string;            // ✅ FIXED: Made optional
+        registrationRequired?: boolean;  // ✅ FIXED: Made optional
         registrationDeadline?: Date;
-        maxParticipants?: number;
+        maxParticipants?: number | null;  // ✅ FIXED: Allow null for unlimited
         
-        // ✅ NEW: Registration fields
         registrationFee?: number;
         allowWaitlist?: boolean;
         requiresApproval?: boolean;
         
-        // ✅ NEW: Additional info
         description?: string;
         instructions?: string;
         contactInfo?: {
@@ -50,7 +47,6 @@ export interface IPost extends Document {
 
     registrationLink?: string;
 
-    // ✅ NEW: Registration statistics
     registrationStats?: {
         totalRegistered: number;
         totalPaid: number;
@@ -65,7 +61,7 @@ export interface IPost extends Document {
     views: number;
     isPinned: boolean;
 
-    publishedAt: Date;
+    publishedAt?: Date;          
     scheduledFor?: Date;
 
     createdAt: Date;

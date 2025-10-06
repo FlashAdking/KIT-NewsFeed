@@ -31,9 +31,7 @@ const handleValidation = (
   next();
 };
 
-/* ------------------------------------------------------------------ *
- * New lean application flow                                          *
- * ------------------------------------------------------------------ */
+
 router.post(
   '/apply',
   repApplicationValidators,
@@ -45,18 +43,13 @@ router.get(
   ClubRepresentativeController.getApplicationDetails
 );
 
-/* ------------------------------------------------------------------ *
- * Legacy simple-request routes                                       *
- * ------------------------------------------------------------------ */
 router.post('/request', ClubRepresentativeController.requestRepresentation);
 router.delete(
   '/request/:membershipId',
   ClubRepresentativeController.cancelRequest
 );
 
-/* ------------------------------------------------------------------ *
- * Student dashboards                                                 *
- * ------------------------------------------------------------------ */
+
 router.get('/status', ClubRepresentativeController.getStatus);
 router.get('/eligibility', ClubRepresentativeController.checkEligibility);
 router.get('/clubs/available', ClubRepresentativeController.getAvailableClubs);
