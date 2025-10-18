@@ -1,0 +1,3 @@
+pythom3 venv -m <ENV_NAME>
+source <ENV_NAME>/bin/activate //for linux
+nvm use 20

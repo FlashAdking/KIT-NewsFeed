@@ -4,8 +4,10 @@ import LoginModal from "./LoginModal";
 import "../src/css/EventPage.css";
 import FilterModal from "./FilterPage";
 import { useToast } from './components/ToastProvider';
+import NavBar from './components/NavBar';
 
 function EventsPage() {
+  // ===== STATE DECLARATIONS =====
   const [todaysEvents, setTodaysEvents] = useState([]);
   const [upcomingEvents, setUpcomingEvents] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -15,7 +17,6 @@ function EventsPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [filters, setFilters] = useState({
     priceRange: "all",
     parentCategory: "all",
@@ -28,16 +29,20 @@ function EventsPage() {
   const [registerLoading, setRegisterLoading] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // External hackathons state
+  const [externalHackathons, setExternalHackathons] = useState([]);
+  const [externalLoading, setExternalLoading] = useState(true);
+  const [externalError, setExternalError] = useState(null);
+
+  // ===== HOOKS =====
   const { showInfo, showSuccess, showError } = useToast();
   const navigate = useNavigate();
 
-  const API_BASE = 'http://localhost:8080'; // ✅ ADDED: API base URL
+  // ===== CONSTANTS =====
+  const API_BASE = 'http://localhost:8080';
+  const SCRAPER_API = 'http://localhost:8000';
 
-  const getDisplayName = (u) => {
-    if (!u) return "User";
-    return u.username || u.fullName || (u.email ? u.email.split("@")[0] : "User");
-  };
-
+  // ===== useEffect - ONLY ONE =====
   useEffect(() => {
     (async () => {
       const token = localStorage.getItem("token");
@@ -48,10 +53,16 @@ function EventsPage() {
       }
       await checkAuthStatus();
       setLoading(true);
-      await fetchEvents();
+
+      // Fetch both internal and external events in parallel
+      await Promise.all([fetchEvents(), fetchExternalHackathons()]);
+
       setLoading(false);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ===== FUNCTIONS =====
 
   const checkAuthStatus = async () => {
     const token = localStorage.getItem("token");
@@ -86,19 +97,26 @@ function EventsPage() {
 
   const fetchEvents = async () => {
     try {
-      // ✅ FIXED: Added http:// protocol
-      const response = await fetch(`${API_BASE}/api/posts?postType=event&status=published`, {
-        headers: { "Content-Type": "application/json" },
-      });
+      const response = await fetch(
+        `${API_BASE}/api/posts?postType=event&status=published`,
+        {
+          headers: { "Content-Type": "application/json" },
+        }
+      );
 
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        console.error('❌ API Error:', errorData);
+        throw new Error(`API error: ${response.status} - ${errorData.message || 'Unknown error'}`);
       }
 
       const result = await response.json();
+      console.log('📦 API Response:', result);
 
-      if (result.success && result.data && result.data.posts) {
-        const events = result.data.posts;
+      // ✅ Handle different response structures
+      if (result.success && result.data) {
+        // Handle paginated response
+        const events = result.data.posts || [];
         const today = new Date().toISOString().split("T")[0];
 
         const todayEvents = events.filter((event) => {
@@ -120,7 +138,7 @@ function EventsPage() {
         console.log("✅ Events loaded:", {
           today: todayEvents.length,
           upcoming: upcomingEventsData.length,
-          total: events.length
+          total: events.length,
         });
       } else {
         setTodaysEvents([]);
@@ -131,6 +149,32 @@ function EventsPage() {
       showError("Failed to load events. Please refresh the page.");
       setTodaysEvents([]);
       setUpcomingEvents([]);
+    }
+  };
+
+
+  const fetchExternalHackathons = async () => {
+    setExternalLoading(true);
+    setExternalError(null);
+
+    try {
+      const response = await fetch(`${SCRAPER_API}/hackathons`, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch external hackathons');
+      }
+
+      const hackathons = await response.json();
+      setExternalHackathons(hackathons || []);
+
+      console.log("✅ External hackathons loaded:", hackathons.length);
+    } catch (error) {
+      console.error("Failed to fetch external hackathons:", error);
+      setExternalError("Unable to load external hackathons. Please try again later.");
+    } finally {
+      setExternalLoading(false);
     }
   };
 
@@ -147,12 +191,11 @@ function EventsPage() {
 
   const filterEvents = (events) => {
     return events.filter((event) => {
-      // Search filter
       const matchesSearch =
         event.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        event.content.toLowerCase().includes(searchTerm.toLowerCase());
+        event.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (event.eventDetails?.description || "").toLowerCase().includes(searchTerm.toLowerCase());
 
-      // Price filter
       const matchesPrice = (() => {
         if (filters.priceRange === "all") return true;
         const fee = event.eventDetails?.registrationFee || 0;
@@ -164,38 +207,48 @@ function EventsPage() {
         return true;
       })();
 
-      // Category filter (if you have categories)
-      const matchesCategory = filters.parentCategory === "all" ||
-        event.categoryId === filters.parentCategory;
+      const matchesCategory = (() => {
+        if (filters.parentCategory === "all") return true;
+        const text = (event.title + " " + event.content + " " + (event.eventDetails?.description || "")).toLowerCase();
+        const categoryKeywords = {
+          tech: ["hackathon", "coding", "programming", "tech", "ai", "ml", "blockchain", "cyber", "development", "software"],
+          academic: ["workshop", "seminar", "conference", "research", "presentation", "lecture", "academic", "study"],
+          cultural: ["cultural", "music", "dance", "drama", "art", "exhibition", "performance", "festival", "celebration"],
+          sports: ["sports", "cricket", "football", "basketball", "athletics", "tournament", "match", "game", "championship"]
+        };
+        const keywords = categoryKeywords[filters.parentCategory] || [];
+        return keywords.some(keyword => text.includes(keyword));
+      })();
 
-      // Location filter
-      const matchesLocation = filters.location === "all" ||
-        event.eventDetails?.venue?.toLowerCase().includes(filters.location.toLowerCase());
+      const matchesSubcategory = (() => {
+        if (!filters.subcategories || filters.subcategories.length === 0) return true;
+        const text = (event.title + " " + event.content + " " + (event.eventDetails?.description || "")).toLowerCase();
+        return filters.subcategories.some(subcat => {
+          const subcatKeyword = subcat.replace("-", " ");
+          return text.includes(subcatKeyword);
+        });
+      })();
 
-      // Event mode filter (online/offline)
+      const matchesLocation = (() => {
+        if (filters.location === "all") return true;
+        const venue = (event.eventDetails?.venue || "").toLowerCase();
+        return venue.includes(filters.location.toLowerCase());
+      })();
+
       const matchesEventMode = (() => {
         if (filters.eventMode === "all") return true;
-        const venue = event.eventDetails?.venue?.toLowerCase() || "";
-        if (filters.eventMode === "online") return venue.includes("online") || venue.includes("virtual");
-        if (filters.eventMode === "offline") return !venue.includes("online") && !venue.includes("virtual");
+        const venue = (event.eventDetails?.venue || "").toLowerCase();
+        const isOnline = venue.includes("online") || venue.includes("virtual") || venue.includes("zoom") || venue.includes("meet");
+        const isOffline = !isOnline && venue.length > 0;
+        if (filters.eventMode === "online") return isOnline;
+        if (filters.eventMode === "offline") return isOffline;
+        if (filters.eventMode === "hybrid") return venue.includes("hybrid");
         return true;
       })();
 
-      return matchesSearch && matchesPrice && matchesCategory && matchesLocation && matchesEventMode;
+      return matchesSearch && matchesPrice && matchesCategory && matchesSubcategory && matchesLocation && matchesEventMode;
     });
   };
-
-
-  const handleAvatarClick = (e) => {
-    e.stopPropagation();
-    setMenuOpen((open) => !open);
-  };
-
-  useEffect(() => {
-    const close = () => setMenuOpen(false);
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
-  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -270,6 +323,10 @@ function EventsPage() {
     navigate(`/event/${event._id}`, { state: { event } });
   };
 
+  const handleExternalHackathonClick = (hackathon) => {
+    window.open(hackathon.registrationLink || hackathon.externalUrl, '_blank', 'noopener,noreferrer');
+  };
+
   const handleLoginSuccess = (userData, token) => {
     localStorage.setItem("token", token);
     localStorage.setItem("userData", JSON.stringify(userData));
@@ -301,6 +358,7 @@ function EventsPage() {
     return new Date(dateString).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
   };
 
+  // ===== RENDER =====
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
@@ -309,112 +367,152 @@ function EventsPage() {
     );
   }
 
+
+
+  // ✅ Dedicated filter function for external hackathons
+  const filterExternalHackathons = (hackathons) => {
+    return hackathons.filter((hackathon) => {
+      // 1. Search filter - checks title, content, tags, and source
+      const matchesSearch = (() => {
+        if (!searchTerm) return true;
+        const searchLower = searchTerm.toLowerCase();
+
+        return (
+          hackathon.title.toLowerCase().includes(searchLower) ||
+          hackathon.content.toLowerCase().includes(searchLower) ||
+          hackathon.source.toLowerCase().includes(searchLower) ||
+          (hackathon.tags && hackathon.tags.some(tag => tag.toLowerCase().includes(searchLower))) ||
+          (hackathon.eventDetails?.venue || "").toLowerCase().includes(searchLower)
+        );
+      })();
+
+      // 2. Price filter - External events are always free to register (redirects)
+      const matchesPrice = (() => {
+        if (filters.priceRange === "all") return true;
+        // External events don't charge on our platform, they redirect
+        if (filters.priceRange === "free") return true;
+        if (filters.priceRange === "paid") return false; // External events aren't "paid" on our platform
+        return true;
+      })();
+
+      // 3. Category filter - uses tags and content keywords
+      const matchesCategory = (() => {
+        if (filters.parentCategory === "all") return true;
+
+        const text = (
+          hackathon.title + " " +
+          hackathon.content + " " +
+          (hackathon.tags ? hackathon.tags.join(" ") : "") +
+          " " + hackathon.source
+        ).toLowerCase();
+
+        const categoryKeywords = {
+          tech: [
+            "hackathon", "coding", "programming", "tech", "ai", "ml", "machine learning",
+            "blockchain", "crypto", "ethereum", "web3", "defi", "nft", "smart contract",
+            "cyber", "security", "development", "software", "developer", "devpost",
+            "mlh", "api", "cloud", "data", "algorithm", "open source"
+          ],
+          academic: [
+            "workshop", "seminar", "conference", "research", "presentation",
+            "lecture", "academic", "study", "educational", "learning", "training"
+          ],
+          cultural: [
+            "cultural", "music", "dance", "drama", "art", "exhibition",
+            "performance", "festival", "celebration", "creative"
+          ],
+          sports: [
+            "sports", "cricket", "football", "basketball", "athletics",
+            "tournament", "match", "game", "championship", "esports"
+          ]
+        };
+
+        const keywords = categoryKeywords[filters.parentCategory] || [];
+        return keywords.some(keyword => text.includes(keyword));
+      })();
+
+      // 4. Subcategory filter - uses tags array
+      const matchesSubcategory = (() => {
+        if (!filters.subcategories || filters.subcategories.length === 0) return true;
+
+        const text = (
+          hackathon.title + " " +
+          hackathon.content + " " +
+          (hackathon.tags ? hackathon.tags.join(" ") : "")
+        ).toLowerCase();
+
+        return filters.subcategories.some(subcat => {
+          const subcatKeyword = subcat.replace("-", " ").toLowerCase();
+          return text.includes(subcatKeyword);
+        });
+      })();
+
+      // 5. Location filter - checks venue field
+      const matchesLocation = (() => {
+        if (filters.location === "all") return true;
+        const venue = (hackathon.eventDetails?.venue || "").toLowerCase();
+        const locationFilter = filters.location.toLowerCase();
+
+        return venue.includes(locationFilter);
+      })();
+
+      // 6. Event mode filter - online/offline/hybrid
+      const matchesEventMode = (() => {
+        if (filters.eventMode === "all") return true;
+        const venue = (hackathon.eventDetails?.venue || "").toLowerCase();
+
+        const isOnline = venue.includes("online") ||
+          venue.includes("virtual") ||
+          venue.includes("remote") ||
+          venue.includes("zoom") ||
+          venue.includes("meet") ||
+          venue.includes("global");
+
+        const isHybrid = venue.includes("hybrid");
+        const isOffline = !isOnline && !isHybrid && venue.length > 0;
+
+        if (filters.eventMode === "online") return isOnline;
+        if (filters.eventMode === "offline") return isOffline;
+        if (filters.eventMode === "hybrid") return isHybrid;
+
+        return true;
+      })();
+
+      // 7. Additional filter - by source platform
+      const matchesSource = (() => {
+        // You can add source filtering later if needed
+        // For now, show all sources
+        return true;
+      })();
+
+      return (
+        matchesSearch &&
+        matchesPrice &&
+        matchesCategory &&
+        matchesSubcategory &&
+        matchesLocation &&
+        matchesEventMode &&
+        matchesSource
+      );
+    });
+  };
+
+
   return (
     <>
       <div className="events-container">
-        <nav className="navbar">
-          <div className="navbar-brand">
-            <div className="brand-logo">E</div>
-            <div className="brand-text">
-              <h1>EventEase</h1>
-              <span>Discover • Connect • Participate</span>
-            </div>
-          </div>
-
-          <div className="navbar-search">
-            <div className="search-container">
-              <input
-                type="text"
-                placeholder="Search events..."
-                className="search-input"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              <button className="search-btn">Search</button>
-            </div>
-            <button className="filter-btn" onClick={() => setShowFilterModal(true)}>
-              <span className="filter-icon">⚙</span>
-              <span>Filters</span>
-              {activeFiltersCount > 0 && <span className="filter-badge">{activeFiltersCount}</span>}
-            </button>
-          </div>
-
-          {isLoggedIn && userProfile ? (
-            <div className="profile-wrapper">
-              <button
-                type="button"
-                className="profile-button"
-                onClick={handleAvatarClick}
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-                aria-controls="profile-menu"
-              >
-                <img
-                  src={
-                    userProfile.avatar ||
-                    `https://ui-avatars.com/api/?name=${encodeURIComponent(getDisplayName(userProfile))}&background=4f46e5&color=fff`
-                  }
-                  alt="Profile"
-                  className="avatar-img"
-                />
-                <span className="profile-name">
-                  {getDisplayName(userProfile)}
-                  {userProfile.role === 'admin' && (
-                    <span className="admin-badge-nav">Admin</span>
-                  )}
-                </span>
-                <span aria-hidden="true">▾</span>
-              </button>
-              {menuOpen && (
-                <div id="profile-menu" className="profile-dropdown-menu" role="menu" onClick={(e) => e.stopPropagation()}>
-                  {/* ✅ FIXED: Different menus for admin vs regular users */}
-                  {userProfile.role === 'admin' ? (
-                    <>
-                      {/* Admin sees: Dashboard, Settings, Logout */}
-                      <button role="menuitem" className="dropdown-menu-item admin-dashboard-item" onClick={() => navigate("/admin")}>
-                        <span className="dropdown-menu-icon">⚙️</span>
-                        <span>Admin Dashboard</span>
-                      </button>
-                      <button role="menuitem" className="dropdown-menu-item" onClick={() => navigate("/settings")}>
-                        <span className="dropdown-menu-icon">⚙️</span>
-                        <span>Settings</span>
-                      </button>
-                      <div className="dropdown-menu-divider"></div>
-                      <button role="menuitem" className="dropdown-menu-item dropdown-menu-danger" onClick={handleLogout}>
-                        <span className="dropdown-menu-icon">🚪</span>
-                        <span>Logout</span>
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      {/* Regular users see: My Profile, Settings, Logout */}
-                      <button role="menuitem" className="dropdown-menu-item" onClick={() => navigate("/profile")}>
-                        <span className="dropdown-menu-icon">👤</span>
-                        <span>My Profile</span>
-                      </button>
-                      <button role="menuitem" className="dropdown-menu-item" onClick={() => navigate("/settings")}>
-                        <span className="dropdown-menu-icon">⚙️</span>
-                        <span>Settings</span>
-                      </button>
-                      <div className="dropdown-menu-divider"></div>
-                      <button role="menuitem" className="dropdown-menu-item dropdown-menu-danger" onClick={handleLogout}>
-                        <span className="dropdown-menu-icon">🚪</span>
-                        <span>Logout</span>
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="login-prompt" onClick={() => navigate("/login")}>
-              {/* <img src="https://ui-avatars.com/api/?name=Guest&background=6b7280&color=fff" alt="Guest" className="avatar-img" /> */}
-              <span className="dropdown-menu-icon">👤</span>
-              <span>Login</span>
-            </div>
-          )}
-
-        </nav>
+        {/* ✅ Updated NavBar with all necessary props */}
+        <NavBar
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          showSearch={true}
+          showFilters={true}
+          onFilterClick={() => setShowFilterModal(true)}
+          activeFiltersCount={activeFiltersCount}
+          isLoggedIn={isLoggedIn}
+          userProfile={userProfile}
+          onLogout={handleLogout}
+        />
 
         <div className="events-content">
           {/* Today's Events Section */}
@@ -430,7 +528,7 @@ function EventsPage() {
                     key={event._id}
                     className="event-card modern-card"
                     onClick={() => handleEventClick(event)}
-                    style={{ ["--accent-color"]: getEventTypeColor(event.title, event.content) }}
+                    style={{ "--accent-color": getEventTypeColor(event.title, event.content) }}
                   >
                     <div className="card-header">
                       <div className="event-badge">
@@ -495,7 +593,7 @@ function EventsPage() {
                     key={event._id}
                     className="event-card modern-card"
                     onClick={() => handleEventClick(event)}
-                    style={{ ["--accent-color"]: getEventTypeColor(event.title, event.content) }}
+                    style={{ "--accent-color": getEventTypeColor(event.title, event.content) }}
                   >
                     <div className="card-header">
                       <div className="event-badge">
@@ -546,8 +644,145 @@ function EventsPage() {
               )}
             </div>
           </section>
+
+
+
+
+
+          {/* External Hackathons Section */}
+          <section className="events-section">
+            <div className="section-header">
+              <h2>🌐 Over The Internet</h2>
+              <span className="event-count">
+                {externalLoading ? (
+                  <span className="loading-badge">Loading...</span>
+                ) : (
+                  `${filterExternalHackathons(externalHackathons).length} hackathons`
+                )}
+              </span>
+            </div>
+
+            {externalLoading ? (
+              <div className="events-grid">
+                <div className="no-events">
+                  <div className="loading-spinner-external"></div>
+                  <p>Discovering hackathons from around the world...</p>
+                  <small>This may take a few moments</small>
+                </div>
+              </div>
+            ) : externalError ? (
+              <div className="events-grid">
+                <div className="no-events">
+                  <div className="no-events-icon">⚠️</div>
+                  <h3>Unable to Load External Hackathons</h3>
+                  <p>{externalError}</p>
+                  <button className="retry-btn" onClick={fetchExternalHackathons}>
+                    Try Again
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="events-grid">
+                {filterExternalHackathons(externalHackathons).length > 0 ? (
+                  filterExternalHackathons(externalHackathons).map((hackathon, idx) => (
+                    <div
+                      key={`external-${idx}`}
+                      className="event-card"
+                      style={{ "--accent-color": "#667eea" }}
+                      onClick={() => handleExternalHackathonClick(hackathon)}
+                    >
+                      <div className="card-header">
+                        <div className="event-badge">
+                          <span>{hackathon.source}</span>
+                        </div>
+                        <div className="priority-indicator" style={{ background: "#667eea" }}></div>
+                      </div>
+
+                      <div className="card-image">
+                        <img
+                          src={
+                            hackathon.media?.[0]?.url ||
+                            `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                              hackathon.title
+                            )}&size=400&background=667eea&color=fff&bold=true`
+                          }
+                          alt={hackathon.title}
+                          onError={(e) => {
+                            e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                              hackathon.title
+                            )}&size=400&background=667eea&color=fff&bold=true`;
+                          }}
+                        />
+                      </div>
+
+                      <div className="card-content">
+                        <h3 className="event-title">{hackathon.title}</h3>
+                        <p className="event-description">{hackathon.content}</p>
+
+                        <div className="event-details">
+                          {hackathon.eventDetails?.venue && (
+                            <div className="detail-item">
+                              <span className="detail-icon">📍</span>
+                              <span>{hackathon.eventDetails.venue}</span>
+                            </div>
+                          )}
+                          {hackathon.eventDetails?.eventDate && (
+                            <div className="detail-item">
+                              <span className="detail-icon">📅</span>
+                              <span>{formatDate(hackathon.eventDetails.eventDate)}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="card-footer">
+                          <span className="fee-tag">External Event</span>
+                          <span className="organizer-badge" style={{ background: "#667eea" }}>
+                            {hackathon.source}
+                          </span>
+                        </div>
+
+                        <div className="card-actions">
+                          <button
+                            className="register-btn"
+                            style={{
+                              background: "linear-gradient(135deg, #667eea, #764ba2)",
+                              width: "100%"
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleExternalHackathonClick(hackathon);
+                            }}
+                          >
+                            Visit {hackathon.source} →
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="no-events">
+                    <div className="no-events-icon">🔍</div>
+                    <h3>No Matching External Hackathons</h3>
+                    <p>
+                      {externalHackathons.length > 0
+                        ? "Try adjusting your search or filters"
+                        : "Check back later for exciting opportunities from around the world"}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+
         </div>
       </div>
+
+
+
+
+
+
 
       <FilterModal isOpen={showFilterModal} onClose={() => setShowFilterModal(false)} filters={filters} onApplyFilters={handleApplyFilters} />
       <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onSuccess={handleLoginSuccess} />

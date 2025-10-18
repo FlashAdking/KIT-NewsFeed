@@ -52,6 +52,13 @@ function AdminDashboard() {
     }
   }, [activeTab, adminUser]);
 
+  // ✅ NEW: Reload posts when filter changes
+  useEffect(() => {
+    if (adminUser && activeTab === 'posts') {
+      loadPosts();
+    }
+  }, [postFilter]);
+
   const checkAdminAccess = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -124,7 +131,7 @@ function AdminDashboard() {
       setStats({
         pendingRepresentatives: repData.data?.count || 0,
         pendingPosts: postsData.data?.pagination?.totalPosts || 0,
-        totalUsers: 0, // Add endpoint if available
+        totalUsers: 0,
         totalEvents: postsData.data?.pagination?.totalPosts || 0,
       });
     } catch (error) {
@@ -193,45 +200,58 @@ function AdminDashboard() {
     }
   };
 
+  // ✅ FIXED: Load posts function
   const loadPosts = async () => {
     try {
       const token = localStorage.getItem('token');
+      console.log('📊 Loading posts with filter:', postFilter);
+      
       const response = await fetch(`${API_BASE}/api/posts?status=${postFilter}&limit=50`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
 
       if (response.ok) {
         const result = await response.json();
+        console.log('✅ Posts loaded:', result.data?.posts?.length || 0);
         setPosts(result.data?.posts || []);
+      } else {
+        console.error('❌ Failed to load posts:', response.status);
+        setPosts([]);
       }
     } catch (error) {
+      console.error('❌ Error loading posts:', error);
       showError('Failed to load posts');
+      setPosts([]);
     }
   };
 
-  const moderatePost = async (postId, action, notes = '') => {
+  // ✅ FIXED: Moderate post function
+  const moderatePost = async (postId, action) => {
     try {
       const token = localStorage.getItem('token');
+      console.log('🔧 Moderating:', { postId, action });
+      
       const response = await fetch(`${API_BASE}/api/posts/${postId}/moderate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ action, notes }),
+        body: JSON.stringify({ action, notes: '' }),
       });
 
       const result = await response.json();
 
       if (response.ok) {
         showSuccess(`Post ${action}d successfully!`);
-        setSelectedPost(null);
         await loadPosts();
         await loadStats();
       } else {
+        console.error('❌ Moderation failed:', result);
         showError(result.message || 'Failed to moderate post');
       }
     } catch (error) {
+      console.error('❌ Network error:', error);
       showError('Network error occurred');
     }
   };
@@ -239,7 +259,6 @@ function AdminDashboard() {
   const loadAdmins = async () => {
     try {
       const token = localStorage.getItem('token');
-      // You'll need to add this endpoint to your backend
       const response = await fetch(`${API_BASE}/api/admin/list`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -462,23 +481,35 @@ function AdminDashboard() {
                           {request.userId?.fullName?.charAt(0) || 'U'}
                         </div>
                         <div className="user-info">
-                          <h4>{request.userId?.fullName}</h4>
-                          <p>{request.userId?.email}</p>
+                          <h4>{request.userId?.fullName || 'Unknown User'}</h4>
+                          <p>{request.userId?.email || 'No email'}</p>
                         </div>
                       </div>
 
                       <div className="request-details">
                         <div className="detail-row">
                           <span className="label">Club:</span>
-                          <span className="value">{request.clubId?.clubName}</span>
+                          <span className="value">{request.clubId?.clubName || 'N/A'}</span>
+                        </div>
+                        <div className="detail-row">
+                          <span className="label">Position:</span>
+                          <span className="value">{request.clubPosition || 'N/A'}</span>
+                        </div>
+                        <div className="detail-row">
+                          <span className="label">Club Type:</span>
+                          <span className="value">{request.clubId?.clubtype || 'N/A'}</span>
                         </div>
                         <div className="detail-row">
                           <span className="label">Department:</span>
-                          <span className="value">{request.userId?.department || 'N/A'}</span>
+                          <span className="value">{request.clubId?.department || 'General'}</span>
                         </div>
                         <div className="detail-row">
-                          <span className="label">Semester:</span>
-                          <span className="value">{request.userId?.semester || 'N/A'}</span>
+                          <span className="label">Official Email:</span>
+                          <span className="value">{request.officialEmail || 'N/A'}</span>
+                        </div>
+                        <div className="detail-row">
+                          <span className="label">Official Phone:</span>
+                          <span className="value">{request.officialPhone || 'N/A'}</span>
                         </div>
                         <div className="detail-row">
                           <span className="label">Requested:</span>
@@ -486,6 +517,34 @@ function AdminDashboard() {
                             {new Date(request.requestedAt).toLocaleDateString()}
                           </span>
                         </div>
+                        
+                        {/* Application Details */}
+                        {request.applicationDetails && (
+                          <>
+                            <div className="detail-section-header">
+                              <strong>Application Details:</strong>
+                            </div>
+                            {request.applicationDetails.statement && (
+                              <div className="detail-row statement-row">
+                                <span className="label">Statement:</span>
+                                <span className="value statement">{request.applicationDetails.statement}</span>
+                              </div>
+                            )}
+                            {request.applicationDetails.supportingDocUrl && (
+                              <div className="detail-row">
+                                <span className="label">Documents:</span>
+                                <a 
+                                  href={request.applicationDetails.supportingDocUrl} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="doc-link"
+                                >
+                                  View Document
+                                </a>
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
 
                       <div className="request-actions">
@@ -494,14 +553,14 @@ function AdminDashboard() {
                           onClick={() => processRepresentativeRequest(request._id, 'approved')}
                           disabled={processingId === request._id}
                         >
-                          {processingId === request._id ? 'Processing...' : 'Approve'}
+                          {processingId === request._id ? 'Processing...' : '✓ Approve'}
                         </button>
                         <button
                           className="btn-reject"
                           onClick={() => processRepresentativeRequest(request._id, 'rejected')}
                           disabled={processingId === request._id}
                         >
-                          Reject
+                          ✕ Reject
                         </button>
                       </div>
                     </div>
@@ -517,15 +576,16 @@ function AdminDashboard() {
                     {representativeHistory.slice(0, 10).map((item) => (
                       <div key={item._id} className="history-item">
                         <div className="history-info">
-                          <strong>{item.userId?.fullName}</strong>
+                          <strong>{item.userId?.fullName || 'Unknown'}</strong>
                           <span> for </span>
-                          <strong>{item.clubId?.clubName}</strong>
+                          <strong>{item.clubId?.clubName || 'Unknown Club'}</strong>
                           <span className={`status-badge ${item.status}`}>
                             {item.status}
                           </span>
                         </div>
                         <div className="history-meta">
-                          {new Date(item.decidedAt).toLocaleDateString()} by {item.decidedBy?.fullName}
+                          {new Date(item.decidedAt).toLocaleDateString()} 
+                          {item.decidedBy?.fullName && ` by ${item.decidedBy.fullName}`}
                         </div>
                       </div>
                     ))}
@@ -543,19 +603,28 @@ function AdminDashboard() {
                 <div className="post-filters">
                   <button
                     className={`filter-btn ${postFilter === 'pending' ? 'active' : ''}`}
-                    onClick={() => { setPostFilter('pending'); loadPosts(); }}
+                    onClick={() => {
+                      console.log('🔄 Switching to pending');
+                      setPostFilter('pending');
+                    }}
                   >
                     Pending
                   </button>
                   <button
                     className={`filter-btn ${postFilter === 'published' ? 'active' : ''}`}
-                    onClick={() => { setPostFilter('published'); loadPosts(); }}
+                    onClick={() => {
+                      console.log('🔄 Switching to published');
+                      setPostFilter('published');
+                    }}
                   >
                     Approved
                   </button>
                   <button
                     className={`filter-btn ${postFilter === 'rejected' ? 'active' : ''}`}
-                    onClick={() => { setPostFilter('rejected'); loadPosts(); }}
+                    onClick={() => {
+                      console.log('🔄 Switching to rejected');
+                      setPostFilter('rejected');
+                    }}
                   >
                     Rejected
                   </button>
@@ -581,18 +650,23 @@ function AdminDashboard() {
                       <div className="post-content">
                         <div className="post-header">
                           <h4>{post.title}</h4>
-                          <span className={`post-type-badge ${post.postType}`}>
-                            {post.postType}
-                          </span>
+                          <div className="post-badges">
+                            <span className={`post-type-badge ${post.postType}`}>
+                              {post.postType}
+                            </span>
+                            <span className={`status-badge ${post.status}`}>
+                              {post.status}
+                            </span>
+                          </div>
                         </div>
 
                         <p className="post-excerpt">
-                          {post.content.substring(0, 150)}...
+                          {post.content?.substring(0, 150)}...
                         </p>
 
                         <div className="post-meta">
-                          <span>Priority: {post.priority}</span>
-                          <span>Views: {post.views}</span>
+                          <span>Priority: {post.priority || 'normal'}</span>
+                          <span>Views: {post.views || 0}</span>
                           {post.eventDetails?.eventDate && (
                             <span>
                               Date: {new Date(post.eventDetails.eventDate).toLocaleDateString()}
@@ -600,28 +674,30 @@ function AdminDashboard() {
                           )}
                         </div>
 
-                        {postFilter === 'pending' && (
-                          <div className="post-actions">
-                            <button
-                              className="btn-approve"
-                              onClick={() => moderatePost(post._id, 'approve')}
-                            >
-                              Approve
-                            </button>
-                            <button
-                              className="btn-reject"
-                              onClick={() => moderatePost(post._id, 'reject')}
-                            >
-                              Reject
-                            </button>
-                            <button
-                              className="btn-view"
-                              onClick={() => window.open(`/event/${post._id}`, '_blank')}
-                            >
-                              View Details
-                            </button>
-                          </div>
-                        )}
+                        <div className="post-actions">
+                          {postFilter === 'pending' && (
+                            <>
+                              <button
+                                className="btn-approve"
+                                onClick={() => moderatePost(post._id, 'approve')}
+                              >
+                                ✓ Approve
+                              </button>
+                              <button
+                                className="btn-reject"
+                                onClick={() => moderatePost(post._id, 'reject')}
+                              >
+                                ✕ Reject
+                              </button>
+                            </>
+                          )}
+                          <button
+                            className="btn-view"
+                            onClick={() => window.open(`/event/${post._id}`, '_blank')}
+                          >
+                            👁 View Details
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}

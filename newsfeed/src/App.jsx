@@ -7,6 +7,8 @@ import { ToastProvider } from './components/ToastProvider';
 import EventsPage from './EventsPage';
 import Profile from './Profile';  
 import AdminDashboard from './AdminDashboard';
+import EventDetails from './EventDetails';
+import RaiseRepRequest from './RaiseRepRequest.';
 
 function App() {
   return (
@@ -18,6 +20,8 @@ function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/event/:id" element={<EventDetails />} />
+          <Route path="/request-representative" element={<RaiseRepRequest />} />
         </Routes>
       </Router>
     </ToastProvider>
