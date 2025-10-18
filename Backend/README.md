@@ -35,7 +35,7 @@ Create a .env file at the project root:
 ```bash
 
 # mongodb atlas
-MONGODB_URI=mongodb+srv://username:<password>@news-feed-cluster.q6okboa.mongodb.net/<DBNAME>?retryWrites=true&w=majority&appName=clus
+MONGODB_URI=
 
 
 JWT_SECRET=
