@@ -59,8 +59,8 @@ pip install -r req.txt
 **Note:** If not using virtual environment, packages will be installed globally.
 
 ### Step 6: Verify Installation
-# Check installed packages
 ```bash
+# Check installed packages
 pip list
 ```
 
