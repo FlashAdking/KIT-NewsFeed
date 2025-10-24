@@ -91,7 +91,7 @@ npm start
 open in any Browser:
 ```bash
 # check PORT in .env 
-# check line 22 in app.ts (Backend/app.ts)
+# check line 22 in app.ts (Backend/src/app.ts)
 # const PORT = process.env.PORT || 3000; // you can modify port
 
 http://localhost:<PORT>
