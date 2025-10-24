@@ -5,7 +5,7 @@
 /* ============ BASE STYLES ============ */
 .profile-container {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #afbaf1 0%, #bea9d3 100%);
   padding: 20px;
 }
 
@@ -41,6 +41,7 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+  font-size: 14px;
 }
 
 .back-btn {
@@ -84,6 +85,7 @@
   cursor: pointer;
   transition: all 0.3s ease;
   color: #6b7280;
+  font-size: 1rem;
 }
 
 .tab-btn.active {
@@ -194,12 +196,14 @@
   margin-bottom: 25px;
   padding-bottom: 25px;
   border-bottom: 1px solid #e5e7eb;
+  font-size: 1rem;
 }
 
 .user-info-compact h2 {
   margin: 0 0 8px 0;
   font-size: 24px;
   color: #1f2937;
+  font-size: 1rem;
 }
 
 .user-email {
@@ -246,7 +250,7 @@
 .stat-number {
   font-size: 32px;
   font-weight: 700;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #667eea 0%, #000000 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -261,85 +265,6 @@
   letter-spacing: 0.5px;
 }
 
-/* ============ RESUME SECTION ============ */
-.resume-section {
-  width: 100%;
-  padding: 20px;
-  background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
-  border-radius: 12px;
-  margin-bottom: 25px;
-  border: 2px solid #e5e7eb;
-}
-
-.resume-section h4 {
-  margin: 0 0 15px 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #374151;
-}
-
-.resume-uploaded {
-  display: flex;
-  gap: 10px;
-}
-
-.resume-link {
-  flex: 1;
-  padding: 12px;
-  background: white;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  text-align: center;
-  color: #667eea;
-  text-decoration: none;
-  font-weight: 600;
-  transition: all 0.2s ease;
-}
-
-.resume-link:hover {
-  border-color: #667eea;
-  background: #eef2ff;
-  transform: translateY(-2px);
-}
-
-.upload-resume-btn {
-  width: 100%;
-  padding: 12px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.upload-resume-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-}
-
-.upload-resume-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.upload-resume-btn.secondary {
-  background: #f3f4f6;
-  color: #374151;
-}
-
-.upload-resume-btn.secondary:hover {
-  background: #e5e7eb;
-}
-
-.resume-section small {
-  display: block;
-  margin-top: 10px;
-  font-size: 12px;
-  color: #9ca3af;
-  text-align: center;
-}
 
 /* ============ CLUB REPRESENTATIVE SECTION ============ */
 .rep-section {
@@ -365,7 +290,7 @@
 
 .rep-header h4 {
   margin: 0;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
   color: #374151;
 }
@@ -534,7 +459,7 @@
 
 .info-section h3 {
   margin: 0 0 20px 0;
-  font-size: 18px;
+  font-size: 30px;
   font-weight: 700;
   color: #1f2937;
 }
@@ -543,6 +468,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  font-size: 1rem;
 }
 
 .info-row {
@@ -554,6 +480,7 @@
   border-radius: 10px;
   transition: all 0.2s ease;
   border-left: 3px solid transparent;
+  
 }
 
 .info-row:hover {
@@ -565,7 +492,7 @@
 .info-label {
   font-weight: 600;
   color: #6b7280;
-  font-size: 14px;
+  font-size: 20px;
 }
 
 .info-value {

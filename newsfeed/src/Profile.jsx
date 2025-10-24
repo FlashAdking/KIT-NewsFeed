@@ -458,31 +458,6 @@ function Profile() {
                 </div>
               </div>
 
-              <div className="resume-section">
-                <h4>Resume</h4>
-                {user.resumeUrl ? (
-                  <div className="resume-uploaded">
-                    <a href={user.resumeUrl} target="_blank" rel="noopener noreferrer" className="resume-link">
-                      View Resume
-                    </a>
-                    <button className="upload-resume-btn secondary" onClick={() => resumeInputRef.current?.click()} disabled={uploadingResume}>
-                      Update
-                    </button>
-                  </div>
-                ) : (
-                  <button className="upload-resume-btn" onClick={() => resumeInputRef.current?.click()} disabled={uploadingResume}>
-                    {uploadingResume ? 'Uploading...' : 'Upload Resume'}
-                  </button>
-                )}
-                <input
-                  ref={resumeInputRef}
-                  type="file"
-                  accept=".pdf"
-                  onChange={handleResumeUpload}
-                  style={{ display: 'none' }}
-                />
-                <small>PDF only, max 10MB</small>
-              </div>
 
               {/* ✅ FIXED: Dynamic Club Representative Section */}
               {(isActiveRep || hasPendingApplication || (!isActiveRep && !hasPendingApplication)) && (
@@ -570,18 +545,7 @@ function Profile() {
                         placeholder="+91 9876543210"
                       />
                     </div>
-                    <div className="form-group">
-                      <label>Department</label>
-                      <select name="department" value={formData.department} onChange={handleInputChange}>
-                        <option value="">Select Department</option>
-                        <option value="Computer Science">Computer Science</option>
-                        <option value="Information Technology">Information Technology</option>
-                        <option value="Electronics">Electronics</option>
-                        <option value="Mechanical">Mechanical</option>
-                        <option value="Civil">Civil</option>
-                        <option value="Electrical">Electrical</option>
-                      </select>
-                    </div>
+                    
                     <div className="form-group">
                       <label>Year</label>
                       <select name="year" value={formData.year} onChange={handleInputChange}>
