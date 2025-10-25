@@ -1,3 +1,6 @@
+// ============================================================================
+// controllers/PostController.ts - UPDATED FOR IMAGE UPLOAD + EXISTING WORKFLOW
+// ============================================================================
 import { Request, Response } from 'express';
 import { PostService } from '../services/PostService';
 import { EventRegistrationService } from '../services/EventRegistrationService';
@@ -6,7 +9,9 @@ import { EventRegistration } from '../models/EventRegistration';
 
 export class PostController {
   
-  // ✅ Helper to extract user ID from JWT token
+  // ========================================================================
+  // HELPER: Extract user ID from JWT token
+  // ========================================================================
   private static getUserId(req: Request): string {
     const userId = (req.user as any)?.userId?.toString() 
                 || (req.user as any)?._id?.toString() 
@@ -19,58 +24,40 @@ export class PostController {
     return userId;
   }
 
-  static async getEventStats(req: Request, res: Response) {
-    try {
-      const { id } = req.params;
-
-      const post = await Post.findById(id)
-        .select('_id postType status eventDetails.maxParticipants')
-        .lean();
-
-      if (!post) {
-        return res.status(404).json({ success: false, message: 'Post not found' });
-      }
-      if (post.postType !== 'event') {
-        return res.status(400).json({ success: false, message: 'Stats available only for events' });
-      }
-
-      const totalRegistered = await EventRegistration.countDocuments({
-        postId: id,
-        status: 'registered',
-      });
-
-      const maxParticipants = (post as any).eventDetails?.maxParticipants ?? null;
-      const spotsRemaining =
-        typeof maxParticipants === 'number'
-          ? Math.max(0, maxParticipants - totalRegistered)
-          : null;
-
-      return res.json({
-        success: true,
-        data: {
-          eventId: id,
-          totalRegistered,
-          maxParticipants,
-          spotsRemaining,
-        },
-      });
-    } catch (err) {
-      return res.status(500).json({ success: false, message: 'Failed to load stats' });
-    }
-  }
-
+  // ========================================================================
+  // CREATE POST (WITH IMAGE UPLOAD)
+  // ========================================================================
   static async createPost(req: Request, res: Response) {
     try {
       const userId = PostController.getUserId(req);
       const postData = req.body;
 
-      if (!postData.title || !postData.content || !postData.categoryId) {
+      console.log('[CREATE POST] Body:', postData);
+      console.log('[CREATE POST] File:', req.file);
+
+      // ✅ ADD IMAGE URL if uploaded
+      if (req.file) {
+        postData.imageUrl = `/uploads/posts/${req.file.filename}`;
+      }
+
+      // Validation
+      if (!postData.title || !postData.content) {
         return res.status(400).json({
           success: false,
-          message: 'Title, content, and categoryId are required',
+          message: 'Title and content are required',
         });
       }
 
+      // Parse eventDetails if string (from FormData)
+      if (typeof postData.eventDetails === 'string') {
+        try {
+          postData.eventDetails = JSON.parse(postData.eventDetails);
+        } catch (e) {
+          console.error('Failed to parse eventDetails:', e);
+        }
+      }
+
+      // Call your existing PostService
       const result = await PostService.createPost(userId, postData);
 
       res.status(201).json({
@@ -78,6 +65,7 @@ export class PostController {
         data: result,
       });
     } catch (error: any) {
+      console.error('[CREATE POST] Error:', error);
       res.status(400).json({
         success: false,
         message: error.message,
@@ -85,10 +73,14 @@ export class PostController {
     }
   }
 
+  // ========================================================================
+  // GET ALL POSTS
+  // ========================================================================
   static async getAllPosts(req: Request, res: Response) {
     try {
       const filters: any = {};
 
+      // Apply filters from query params
       if (req.query.status) filters.status = req.query.status as string;
       if (req.query.authorType) filters.authorType = req.query.authorType as string;
       if (req.query.categoryId) filters.categoryId = req.query.categoryId as string;
@@ -99,7 +91,7 @@ export class PostController {
       filters.page = parseInt(req.query.page as string) || 1;
       filters.limit = parseInt(req.query.limit as string) || 10;
 
-      console.log('📊 Controller filters:', JSON.stringify(filters));
+      console.log('📊 getAllPosts filters:', JSON.stringify(filters));
 
       const result = await PostService.getAllPosts(filters);
 
@@ -108,7 +100,7 @@ export class PostController {
         data: result,
       });
     } catch (error: any) {
-      console.error('❌ PostController.getAllPosts error:', error.message);
+      console.error('❌ getAllPosts error:', error.message);
       res.status(500).json({
         success: false,
         message: error.message || 'Failed to fetch posts',
@@ -116,6 +108,9 @@ export class PostController {
     }
   }
 
+  // ========================================================================
+  // GET POST BY ID
+  // ========================================================================
   static async getPostById(req: Request, res: Response) {
     try {
       const { id } = req.params;
@@ -135,11 +130,31 @@ export class PostController {
     }
   }
 
+  // ========================================================================
+  // UPDATE POST (WITH IMAGE UPLOAD)
+  // ========================================================================
   static async updatePost(req: Request, res: Response) {
     try {
       const { id } = req.params;
       const userId = PostController.getUserId(req);
       const updateData = req.body;
+
+      console.log('[UPDATE POST] Body:', updateData);
+      console.log('[UPDATE POST] File:', req.file);
+
+      // ✅ ADD IMAGE URL if new file uploaded
+      if (req.file) {
+        updateData.imageUrl = `/uploads/posts/${req.file.filename}`;
+      }
+
+      // Parse eventDetails if string (from FormData)
+      if (typeof updateData.eventDetails === 'string') {
+        try {
+          updateData.eventDetails = JSON.parse(updateData.eventDetails);
+        } catch (e) {
+          console.error('Failed to parse eventDetails:', e);
+        }
+      }
 
       const result = await PostService.updatePost(id, userId, updateData);
 
@@ -148,6 +163,7 @@ export class PostController {
         data: result,
       });
     } catch (error: any) {
+      console.error('[UPDATE POST] Error:', error);
       res.status(400).json({
         success: false,
         message: error.message,
@@ -155,6 +171,9 @@ export class PostController {
     }
   }
 
+  // ========================================================================
+  // DELETE POST
+  // ========================================================================
   static async deletePost(req: Request, res: Response) {
     try {
       const { id } = req.params;
@@ -174,25 +193,9 @@ export class PostController {
     }
   }
 
-  static async toggleLike(req: Request, res: Response) {
-    try {
-      const { id } = req.params;
-      const userId = PostController.getUserId(req);
-
-      const result = await PostService.toggleLike(id, userId);
-
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
-    } catch (error: any) {
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  }
-
+  // ========================================================================
+  // GET MY POSTS
+  // ========================================================================
   static async getMyPosts(req: Request, res: Response) {
     try {
       console.log('📝 getMyPosts called');
@@ -218,6 +221,31 @@ export class PostController {
     }
   }
 
+  // ========================================================================
+  // TOGGLE LIKE
+  // ========================================================================
+  static async toggleLike(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const userId = PostController.getUserId(req);
+
+      const result = await PostService.toggleLike(id, userId);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  // ========================================================================
+  // INCREMENT VIEW
+  // ========================================================================
   static async incrementView(req: Request, res: Response) {
     try {
       const { id } = req.params;
@@ -237,6 +265,9 @@ export class PostController {
     }
   }
 
+  // ========================================================================
+  // GET PENDING POSTS (ADMIN)
+  // ========================================================================
   static async getPendingPosts(req: Request, res: Response) {
     try {
       const filters = {
@@ -259,6 +290,109 @@ export class PostController {
     }
   }
 
+  // ========================================================================
+  // MODERATE POST (ADMIN - APPROVE/REJECT)
+  // ========================================================================
+  static async moderatePost(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { action, notes } = req.body;
+      const adminId = PostController.getUserId(req);
+
+      console.log('✅ Moderating post:', { adminId, postId: id, action });
+
+      if (!['approve', 'reject'].includes(action)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Action must be "approve" or "reject"',
+        });
+      }
+
+      const status = action === 'approve' ? 'published' : 'rejected';
+      const updateData: any = {
+        status,
+        moderatedBy: adminId,
+        moderationNotes: notes || ''
+      };
+
+      // ✅ Set publishedAt when approving
+      if (action === 'approve') {
+        updateData.publishedAt = new Date();
+      }
+
+      const result = await PostService.updatePost(id, adminId, updateData);
+
+      res.status(200).json({
+        success: true,
+        message: `Post ${action}d successfully`,
+        data: result,
+      });
+    } catch (error: any) {
+      console.error('❌ Moderate post error:', error.message);
+      res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  }
+
+  // ========================================================================
+  // EVENT: GET STATS
+  // ========================================================================
+  static async getEventStats(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+
+      const post = await Post.findById(id)
+        .select('_id postType status eventDetails.maxParticipants')
+        .lean();
+
+      if (!post) {
+        return res.status(404).json({ 
+          success: false, 
+          message: 'Post not found' 
+        });
+      }
+
+      if (post.postType !== 'event') {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Stats available only for events' 
+        });
+      }
+
+      const totalRegistered = await EventRegistration.countDocuments({
+        postId: id,
+        status: 'registered',
+      });
+
+      const maxParticipants = (post as any).eventDetails?.maxParticipants ?? null;
+      const spotsRemaining =
+        typeof maxParticipants === 'number'
+          ? Math.max(0, maxParticipants - totalRegistered)
+          : null;
+
+      return res.json({
+        success: true,
+        data: {
+          eventId: id,
+          totalRegistered,
+          maxParticipants,
+          spotsRemaining,
+        },
+      });
+    } catch (err) {
+      console.error('[GET EVENT STATS] Error:', err);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to load stats' 
+      });
+    }
+  }
+
+  // ========================================================================
+  // EVENT: GET REGISTRATIONS (for event creator/admin)
+  // ========================================================================
   static async getEventRegistrations(req: Request, res: Response) {
     try {
       const { id } = req.params;
@@ -278,58 +412,21 @@ export class PostController {
     }
   }
 
+  // ========================================================================
+  // EVENT: REGISTER FOR EVENT
+  // ========================================================================
   static async registerForEvent(req: Request, res: Response) {
     try {
       const { id } = req.params;
       const userId = PostController.getUserId(req);
-      const { paymentMethod } = req.body;
 
-      const result = await EventRegistrationService.registerForEvent(id, userId, paymentMethod);
+      const result = await EventRegistrationService.registerForEvent(userId, id);
 
       res.status(201).json({
         success: true,
         data: result,
       });
     } catch (error: any) {
-      res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  }
-
-  // ✅ FIXED: Moderate post
-  static async moderatePost(req: Request, res: Response) {
-    try {
-      const { id } = req.params;
-      const { action, notes } = req.body;
-      const adminId = PostController.getUserId(req);
-
-      console.log('✅ Moderating post:', { adminId, postId: id, action });
-
-      if (!['approve', 'reject'].includes(action)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Action must be approve or reject',
-        });
-      }
-
-      const status = action === 'approve' ? 'published' : 'rejected';
-      const updateData: any = {
-        status,
-        moderatedBy: adminId,
-        moderationNotes: notes || ''
-      };
-
-      const result = await PostService.updatePost(id, adminId, updateData);
-
-      res.status(200).json({
-        success: true,
-        message: `Post ${action}d successfully`,
-        data: result,
-      });
-    } catch (error: any) {
-      console.error('❌ Moderate post error:', error.message);
       res.status(400).json({
         success: false,
         message: error.message,

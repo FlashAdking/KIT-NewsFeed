@@ -4,6 +4,7 @@ import { studentOnly } from '../middleware/roleMiddleware';
 import { ClubRepresentativeController } from '../controllers/ClubRepresentativeController';
 import { repApplicationValidators } from '../validators/repApplicationValidators';
 import { validationResult } from 'express-validator';
+import { uploadVerification } from '../middleware/upload';
 
 const router = Router();
 
@@ -30,8 +31,7 @@ const handleValidation = (
 
 router.post(
   '/apply',
-  // repApplicationValidators,
-  // handleValidation,
+  uploadVerification.single('verificationDocument'), // ✅ THIS LINE IS CRITICAL
   ClubRepresentativeController.apply
 );
 router.get(
@@ -39,8 +39,14 @@ router.get(
   ClubRepresentativeController.getApplicationDetails
 );
 
-router.post('/request', ClubRepresentativeController.requestRepresentation);
+// router.post('/request', ClubRepresentativeController.requestRepresentation);
 router.delete('/request/:membershipId',ClubRepresentativeController.cancelRequest);
+
+
+
+
+// Serve uploaded verification documents
+router.get('/documents/:filename', ClubRepresentativeController.serveDocument);
 
 
 router.get('/status', ClubRepresentativeController.getStatus);

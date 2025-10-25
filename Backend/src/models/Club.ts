@@ -10,7 +10,7 @@ const clubSchema = new Schema<IClub>(
     establishedYear: { type: Number, min: 1900, max: new Date().getFullYear() },
     clubtype: {
       type: String,
-      enum: ['academic', 'cultural', 'sports', 'technical', 'social'],
+      enum: ['cultural', 'sports', 'technical', 'social', 'entrepreneurship', 'arts', 'literary', 'music', 'dance'],
       required: true
     },
     logo:       String,

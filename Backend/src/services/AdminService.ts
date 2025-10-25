@@ -2,6 +2,9 @@ import { User } from '../models/User';
 import { ClubMembership } from '../models/ClubMembership';
 import { IUser } from '../models/interfaces/IUser';
 import mongoose, { Types } from 'mongoose';
+import path from 'path';
+import { Club } from '../models/Club'; // ✅ Add this import at the top
+import fs from 'fs';
 
 export class AdminService {
   
@@ -188,94 +191,150 @@ export class AdminService {
 
   // Process club representative requests specifically
   static async processRepresentativeRequest(
-    adminId: string,
-    membershipId: string,
-    decision: 'approved' | 'rejected',
-    notes?: string
-  ) {
-    try {
-      const admin = await User.findById(adminId);
-      if (!admin || admin.role !== 'admin') {
-        throw new Error('Admin access required');
-      }
-
-      // Check admin permissions
-      if (!admin.adminProfile?.canManageClubs && admin.adminProfile?.adminLevel !== 'super') {
-        throw new Error('Insufficient permissions to manage club representatives');
-      }
-      
-      const membership = await ClubMembership.findById(membershipId)
-        .populate('userId')
-        .populate('clubId');
-        
-      if (!membership || membership.role !== 'representative') {
-        throw new Error('Representative request not found');
-      }
-
-      if (membership.status !== 'pending') {
-        throw new Error('Request has already been processed');
-      }
-      
-      // Update membership status
-      membership.status = decision;
-      membership.decidedBy = new Types.ObjectId(adminId);
-      membership.decidedAt = new Date();
-      if (notes) {
-        membership.notes = notes;
-      }
-      
-      if (decision === 'approved') {
-        // Update user to have club representative access
-        const student = await User.findById(membership.userId);
-        if (student) {
-          student.clubRepresentative = {
-            isActive: true,
-            clubId: membership.clubId as Types.ObjectId,
-            clubPosition: membership.clubPosition || 'Representative',
-            approvedBy: new Types.ObjectId(adminId),
-            approvedAt: new Date()
-          };
-          await student.save();
-        }
-        
-        console.log(`✅ Club representative approved: ${student?.fullName} for club: ${(membership.clubId as any)?.clubName} by admin: ${admin.fullName}`);
-      } else {
-        // For rejection, update user with rejection info
-        const student = await User.findById(membership.userId);
-        if (student) {
-          if (!student.clubRepresentative) {
-            student.clubRepresentative = {
-              isActive: false
-            };
-          }
-          student.clubRepresentative.rejectedAt = new Date();
-          student.clubRepresentative.rejectionNotes = notes;
-          await student.save();
-        }
-        
-        console.log(`❌ Club representative rejected: ${student?.fullName} for club: ${(membership.clubId as any)?.clubName} by admin: ${admin.fullName}`);
-      }
-      
-      await membership.save();
-      
-      return {
-        message: `Club representative request ${decision} successfully`,
-        membership: {
-          _id: membership._id,
-          userId: membership.userId,
-          clubId: membership.clubId,
-          role: membership.role,
-          status: membership.status,
-          notes: membership.notes,
-          requestedAt: membership.requestedAt,
-          decidedAt: membership.decidedAt,
-          decidedBy: membership.decidedBy
-        }
-      };
-    } catch (error: any) {
-      throw new Error(error.message || 'Failed to process representative request');
+  adminId: string,
+  membershipId: string,
+  decision: 'approved' | 'rejected',
+  notes?: string
+) {
+  try {
+    const admin = await User.findById(adminId);
+    if (!admin || admin.role !== 'admin') {
+      throw new Error('Admin access required');
     }
+
+    // Check admin permissions
+    if (!admin.adminProfile?.canManageClubs && admin.adminProfile?.adminLevel !== 'super') {
+      throw new Error('Insufficient permissions to manage club representatives');
+    }
+    
+    const membership = await ClubMembership.findById(membershipId)
+      .populate('userId')
+      .populate('clubId');
+      
+    if (!membership || membership.role !== 'representative') {
+      throw new Error('Representative request not found');
+    }
+
+    if (membership.status !== 'pending') {
+      throw new Error('Request has already been processed');
+    }
+    
+    // Update membership status
+    membership.status = decision;
+    membership.decidedBy = new Types.ObjectId(adminId);
+    membership.decidedAt = new Date();
+    if (notes) {
+      membership.notes = notes;
+    }
+    
+    if (decision === 'approved') {
+      // Update user to have club representative access
+      const student = await User.findById(membership.userId);
+      if (student) {
+        student.clubRepresentative = {
+          isActive: true,
+          clubId: membership.clubId as Types.ObjectId,
+          clubPosition: membership.clubPosition || 'Representative',
+          approvedBy: new Types.ObjectId(adminId),
+          approvedAt: new Date()
+        };
+        await student.save();
+      }
+      
+      console.log(`✅ Club representative approved: ${student?.fullName} for club: ${(membership.clubId as any)?.clubName} by admin: ${admin.fullName}`);
+    } 
+    else {
+      // REJECTION LOGIC
+      const student = await User.findById(membership.userId);
+      if (student) {
+        if (!student.clubRepresentative) {
+          student.clubRepresentative = {
+            isActive: false
+          };
+        }
+        student.clubRepresentative.rejectedAt = new Date();
+        student.clubRepresentative.rejectionNotes = notes;
+        await student.save();
+      }
+
+      // ✅ DELETE CLUB IF CONDITIONS MET (with case-insensitive check)
+      const club = await Club.findById(membership.clubId);
+      
+      if (club) {
+        // Check if this club was created by this user
+        const wasCreatedByThisUser = club.createdBy?.toString() === membership.userId.toString();
+        
+        // Count other memberships (approved or pending) for this club
+        const otherMemberships = await ClubMembership.countDocuments({
+          clubId: club._id,
+          _id: { $ne: membership._id }, // Exclude current membership
+          status: { $in: ['pending', 'approved'] }
+        });
+
+        // Delete club if conditions are met
+        if (wasCreatedByThisUser && otherMemberships === 0 && !club.isApproved) {
+          // ✅ Also check for duplicate clubs with same name (case-insensitive)
+          // before deleting to ensure clean state
+          const duplicateClubs = await Club.find({
+            collegeName: club.collegeName,
+            clubName: { $regex: new RegExp(`^${club.clubName}$`, 'i') }, // Case-insensitive
+            _id: { $ne: club._id } // Exclude current club
+          });
+
+          // Delete all duplicates created by this user with no members
+          for (const dupClub of duplicateClubs) {
+            if (dupClub.createdBy?.toString() === membership.userId.toString()) {
+              const dupMembers = await ClubMembership.countDocuments({
+                clubId: dupClub._id,
+                status: { $in: ['pending', 'approved'] }
+              });
+              
+              if (dupMembers === 0) {
+                await Club.findByIdAndDelete(dupClub._id);
+                console.log(`🗑️ Deleted duplicate club: ${dupClub.clubName}`);
+              }
+            }
+          }
+
+          // Delete the main club
+          await Club.findByIdAndDelete(club._id);
+          console.log(`🗑️ Deleted club: ${club.clubName} (created by rejected user, no other members)`);
+        }
+      }
+
+      // DELETE VERIFICATION DOCUMENT FILE
+      if (membership.verificationDocument?.path) {
+        const filePath = path.join(__dirname, '../../', membership.verificationDocument.path);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          console.log(`🗑️ Deleted verification file: ${membership.verificationDocument.filename}`);
+        }
+      }
+      
+      console.log(`❌ Club representative rejected: ${student?.fullName} for club: ${(membership.clubId as any)?.clubName} by admin: ${admin.fullName}`);
+    }
+    
+    await membership.save();
+    
+    return {
+      message: `Club representative request ${decision} successfully`,
+      membership: {
+        _id: membership._id,
+        userId: membership.userId,
+        clubId: membership.clubId,
+        role: membership.role,
+        status: membership.status,
+        notes: membership.notes,
+        requestedAt: membership.requestedAt,
+        decidedAt: membership.decidedAt,
+        decidedBy: membership.decidedBy
+      }
+    };
+  } catch (error: any) {
+    throw new Error(error.message || 'Failed to process representative request');
   }
+}
+
 
   // Get club representative history
   static async getRepresentativeHistory(adminId: string, limit: number = 50) {

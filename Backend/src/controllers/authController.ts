@@ -36,14 +36,14 @@ declare global {
 }
 
 export class AuthController {
-  
+
   // ✅ Helper to extract user ID from JWT token
   private static getUserId(req: Request): string | null {
-    const userId = (req.user as any)?.userId?.toString() 
-                || (req.user as any)?._id?.toString() 
-                || (req.user as any)?.sub?.toString()
-                || (req.user as any)?.id?.toString();
-    
+    const userId = (req.user as any)?.userId?.toString()
+      || (req.user as any)?._id?.toString()
+      || (req.user as any)?.sub?.toString()
+      || (req.user as any)?.id?.toString();
+
     return userId || null;
   }
 
@@ -123,24 +123,29 @@ export class AuthController {
         return res.status(401).json({ success: false, error: "Unauthorized" });
       }
 
-      const current = req.user as any;
       const maybeId = AuthController.getUserId(req);
 
-      let userObj: any = null;
-
-      const needsHydrate = !!maybeId && (!("email" in current) || !("username" in current));
-      if (needsHydrate) {
-        const fresh = await User.findById(maybeId).select("-password -__v").lean();
-        userObj = sanitizeUser(fresh);
-      } else {
-        userObj = sanitizeUser(current);
+      if (!maybeId) {
+        return res.status(400).json({ success: false, error: "Invalid user ID" });
       }
+
+      // ✅ Populate with correct field name: clubName
+      const userObj = await User.findById(maybeId)
+        .select("-password -__v")
+        .populate({
+          path: 'clubRepresentative.clubId',
+          select: 'clubName description logo clubtype' // ✅ Use clubName, not name
+        })
+        .lean();
 
       if (!userObj) {
         return res.status(404).json({ success: false, error: "User not found" });
       }
 
-      return res.status(200).json({ success: true, user: userObj });
+      return res.status(200).json({
+        success: true,
+        user: sanitizeUser(userObj)
+      });
     } catch (error: any) {
       return res.status(500).json({
         success: false,
@@ -149,11 +154,13 @@ export class AuthController {
     }
   }
 
+
+
   // ✅ FIXED: Update profile
   static async updateProfile(req: Request, res: Response, _next: NextFunction) {
     try {
       const userId = AuthController.getUserId(req);
-      
+
       if (!userId) {
         return res.status(401).json({ success: false, error: "Unauthorized" });
       }
@@ -205,9 +212,9 @@ export class AuthController {
           details: errors,
         });
       }
-      
+
       const userId = AuthController.getUserId(req);
-      
+
       if (!userId) {
         return res.status(401).json({ success: false, error: "Unauthorized" });
       }

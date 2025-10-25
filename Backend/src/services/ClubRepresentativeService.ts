@@ -2,6 +2,8 @@ import { Types } from 'mongoose';
 import { User } from '../models/User';
 import { Club } from '../models/Club';
 import { ClubMembership } from '../models/ClubMembership';
+import fs from 'fs';
+
 
 export class ClubRepresentativeService {
   /* ------------------------------------------------------------------
@@ -51,107 +53,180 @@ export class ClubRepresentativeService {
       clubPosition: 'president' | 'vice-president' | 'secretary' | 'coordinator' | 'treasurer';
       officialEmail: string;
       officialPhone: string;
-      statement: string;
+      statement?: string;
       supportingDocUrl?: string;
+
+      // ✅ NEW: File upload
+      verificationDocument?: {
+        filename: string;
+        path: string;
+        fileType: string;
+        fileSize: number;
+      };
     }
   ) {
-    console.log('🔍 ClubRepresentativeService.apply() called with:', { 
-      hasClubId: !!payload.clubId, 
-      hasClubName: !!payload.clubName 
+    console.log('🔍 ClubRepresentativeService.apply() called with:', {
+      hasClubId: !!payload.clubId,
+      hasClubName: !!payload.clubName,
+      hasFile: !!payload.verificationDocument // ✅ NEW
     });
 
-    /* ---------- 1. user check ---------- */
-    const student = await User.findById(studentId);
-    if (!student || student.role !== 'student')
-      throw new Error('Only students can apply for club representation');
-
-    /* ---------- 2. one-club-per-student check ---------- */
-    if (await this.studentHasActiveOrPendingRep(studentId))
-      throw new Error('You already represent a club or have a pending request');
-
-    let clubId: Types.ObjectId;
-    let newClubCreated = false;
-
-    /* ---------- 3A. Existing-club path ---------- */
-    if (payload.clubId) {
-      console.log('📋 Taking existing-club path');
-      
-      const club = await Club.findById(payload.clubId);
-      if (!club || !club.isActive)
-        throw new Error('Club not found or inactive');
-
-      /* 3-rep limit */
-      if ((await this.approvedRepCount(club._id.toString())) >= 3)
-        throw new Error('This club already has the maximum of 3 representatives');
-
-      /* duplicate position check */
-      if (await this.positionTaken(club._id.toString(), payload.clubPosition))
-        throw new Error(`The position "${payload.clubPosition}" is already taken`);
-
-      clubId = club._id;
+    // ✅ NEW: Validate file upload
+    if (!payload.verificationDocument) {
+      throw new Error('Verification document is required');
     }
 
-    /* ---------- 3B. New-club path ---------- */
-    else {
-      console.log('🆕 Taking new-club creation path');
-      
-      if (!payload.clubName || !payload.clubType)
-        throw new Error('clubName and clubType are required for new clubs');
+    try {
+      /* ---------- 1. user check ---------- */
+      const student = await User.findById(studentId);
+      if (!student || student.role !== 'student') {
+        // ✅ Clean up file if validation fails
+        if (payload.verificationDocument?.path && fs.existsSync(payload.verificationDocument.path)) {
+          fs.unlinkSync(payload.verificationDocument.path);
+        }
+        throw new Error('Only students can apply for club representation');
+      }
 
-      const club = new Club({
-        clubName: payload.clubName,
-        clubtype: payload.clubType,
-        description: `${payload.clubName} – created via rep application`,
-        collegeName: student.collegeName,
-        department: payload.department || student.department,
-        isActive: true,
-        isApproved: false,          // admin will approve during request processing
-        createdBy: student._id
-      });
+      /* ---------- 2. one-club-per-student check ---------- */
+      if (await this.studentHasActiveOrPendingRep(studentId)) {
+        // ✅ Clean up file
+        if (payload.verificationDocument?.path && fs.existsSync(payload.verificationDocument.path)) {
+          fs.unlinkSync(payload.verificationDocument.path);
+        }
+        throw new Error('You already represent a club or have a pending request');
+      }
 
-      await club.save();
-      clubId = club._id;
-      newClubCreated = true;
-      
-      console.log(`✅ New club created: ${club.clubName} (${clubId})`);
-    }
+      let clubId: Types.ObjectId;
+      let newClubCreated = false;
 
-    /* ---------- 4. Create membership request ---------- */
-    const application = new ClubMembership({
-      userId: student._id,
-      clubId,
-      role: 'representative',
-      status: 'pending',
-      clubPosition: payload.clubPosition,
-      officialEmail: payload.officialEmail,
-      officialPhone: payload.officialPhone,
+      /* ---------- 3A. Existing-club path ---------- */
+      if (payload.clubId) {
+        console.log('📋 Taking existing-club path');
 
-      applicationDetails: {
-        fullName: student.fullName,
-        email: student.email,
-        department: student.department,
-        semester: student.semester || 1,
+        const club = await Club.findById(payload.clubId);
+        if (!club || !club.isActive) {
+          // ✅ Clean up file
+          if (payload.verificationDocument?.path && fs.existsSync(payload.verificationDocument.path)) {
+            fs.unlinkSync(payload.verificationDocument.path);
+          }
+          throw new Error('Club not found or inactive');
+        }
+
+        /* 3-rep limit */
+        if ((await this.approvedRepCount(club._id.toString())) >= 3) {
+          // ✅ Clean up file
+          if (payload.verificationDocument?.path && fs.existsSync(payload.verificationDocument.path)) {
+            fs.unlinkSync(payload.verificationDocument.path);
+          }
+          throw new Error('This club already has the maximum of 3 representatives');
+        }
+
+        /* duplicate position check */
+        if (await this.positionTaken(club._id.toString(), payload.clubPosition)) {
+          // ✅ Clean up file
+          if (payload.verificationDocument?.path && fs.existsSync(payload.verificationDocument.path)) {
+            fs.unlinkSync(payload.verificationDocument.path);
+          }
+          throw new Error(`The position "${payload.clubPosition}" is already taken`);
+        }
+
+        clubId = club._id;
+      }
+
+      /* ---------- 3B. New-club path ---------- */
+      else {
+        console.log('🆕 Taking new-club creation path');
+
+        if (!payload.clubName || !payload.clubType) {
+          // ✅ Clean up file
+          if (payload.verificationDocument?.path && fs.existsSync(payload.verificationDocument.path)) {
+            fs.unlinkSync(payload.verificationDocument.path);
+          }
+          throw new Error('clubName and clubType are required for new clubs');
+        }
+
+        const club = new Club({
+          clubName: payload.clubName,
+          clubtype: payload.clubType,
+          description: `${payload.clubName} – created via rep application`,
+          collegeName: student.collegeName,
+          department: payload.department || student.department,
+          isActive: true,
+          isApproved: false,
+          createdBy: student._id
+        });
+
+        await club.save();
+        clubId = club._id;
+        newClubCreated = true;
+
+        console.log(`✅ New club created: ${club.clubName} (${clubId})`);
+      }
+
+      /* ---------- 4. Create membership request ---------- */
+      const application = new ClubMembership({
+        userId: student._id,
+        clubId,
+        role: 'representative',
+        status: 'pending',
         clubPosition: payload.clubPosition,
         officialEmail: payload.officialEmail,
         officialPhone: payload.officialPhone,
-        statement: payload.statement,
-        supportingDocUrl: payload.supportingDocUrl
-      },
 
-      requestedAt: new Date()
-    });
+        // ✅ NEW: Store verification document info
+        verificationDocument: {
+          filename: payload.verificationDocument.filename,
+          path: payload.verificationDocument.path,
+          fileType: payload.verificationDocument.fileType,
+          fileSize: payload.verificationDocument.fileSize,
+          uploadedAt: new Date()
+        },
 
-    await application.save();
+        applicationDetails: {
+          fullName: student.fullName,
+          email: student.email,
+          department: student.department,
+          semester: student.semester || 1,
+          clubPosition: payload.clubPosition,
+          officialEmail: payload.officialEmail,
+          officialPhone: payload.officialPhone,
+          statement: payload.statement || '',
+          supportingDocUrl: payload.supportingDocUrl
+        },
 
-    return {
-      message: 'Club representative application submitted successfully',
-      applicationId: application._id,
-      clubId,
-      position: payload.clubPosition,
-      newClubCreated,
-      status: 'pending_review'
-    };
+        requestedAt: new Date()
+      });
+
+      await application.save();
+
+      return {
+        message: 'Club representative application submitted successfully',
+        applicationId: application._id,
+        clubId,
+        position: payload.clubPosition,
+        newClubCreated,
+        status: 'pending_review',
+        // ✅ NEW: Include file info in response
+        verificationDocument: {
+          filename: payload.verificationDocument.filename,
+          uploaded: true
+        }
+      };
+
+    } catch (error) {
+      // ✅ Clean up file on any error
+      if (payload.verificationDocument?.path && fs.existsSync(payload.verificationDocument.path)) {
+        try {
+          fs.unlinkSync(payload.verificationDocument.path);
+          console.log('🗑️ Cleaned up file after error:', payload.verificationDocument.filename);
+        } catch (cleanupError) {
+          console.error('❌ Error cleaning up file:', cleanupError);
+        }
+      }
+      throw error;
+    }
   }
+
 
   /* ------------------------------------------------------------------
    * Admin workflow methods - UPDATED to handle new clubs

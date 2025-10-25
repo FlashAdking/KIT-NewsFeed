@@ -9,81 +9,291 @@ import authRoutes from './routes/authRoutes';
 import adminRoutes from './routes/adminRoutes';
 import postRoutes from './routes/postRoutes';
 import clubRepresentativeRoutes from './routes/clubRepresentativeRoutes';
+import path from 'path';
 
-
-
-// Load environment variables
+// ============================================================================
+// ENVIRONMENT & DATABASE SETUP
+// ============================================================================
 dotenv.config();
-
-// Connect to MongoDB before starting the server
 connectDB();
 
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(helmet());
-app.use(cors());
-app.use(morgan('combined'));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+// ============================================================================
+// 1. CORS CONFIGURATION (MUST BE FIRST)
+// ============================================================================
+// Order matters: CORS must come before other middleware that might send responses
+// Reference: https://expressjs.com/en/guide/using-middleware.html
+const corsOptions = {
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:5173', // Vite default port
+    'http://localhost:5174', // Backup Vite port
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 86400, // 24 hours - reduces preflight requests
+};
 
-// Basic routes
+app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
+
+// ============================================================================
+// 2. SECURITY HEADERS (HELMET)
+// ============================================================================
+// Configure Helmet AFTER CORS to avoid conflicts
+// Reference: https://helmetjs.github.io/
+app.use(
+  helmet({
+    // CRITICAL: Allow cross-origin images/assets
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    
+    // Content Security Policy - allows localhost resources
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        imgSrc: ["'self'", 'data:', 'blob:', 'http://localhost:*', 'https://localhost:*'],
+        scriptSrc: ["'self'", "'unsafe-inline'"], // unsafe-inline needed for some React features
+        styleSrc: ["'self'", "'unsafe-inline'"], // unsafe-inline for CSS-in-JS
+        fontSrc: ["'self'", 'data:'],
+        connectSrc: ["'self'", 'http://localhost:*', 'ws://localhost:*'], // API & WebSocket
+        frameSrc: ["'self'"],
+        frameAncestors: ["'self'", 'http://localhost:*'],
+      },
+    },
+    
+    // Don't send X-Powered-By header (security)
+    hidePoweredBy: true,
+  })
+);
+
+// ============================================================================
+// 3. LOGGING
+// ============================================================================
+// Morgan logs HTTP requests - use 'combined' in production, 'dev' in development
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+
+// ============================================================================
+// 4. BODY PARSING
+// ============================================================================
+// Parse JSON and URL-encoded bodies - must come before routes
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// ============================================================================
+// 5. STATIC FILES WITH CORS HEADERS
+// ============================================================================
+// CRITICAL: Add CORS middleware BEFORE express.static
+// This fixes the ERR_BLOCKED_BY_RESPONSE.NotSameOrigin error
+app.use('/uploads', (req: Request, res: Response, next: NextFunction) => {
+  // Set CORS headers for static files
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  // CRITICAL: This header allows cross-origin images to load
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  
+  // Handle preflight OPTIONS requests
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  
+  next();
+});
+
+// Serve static files with proper headers
+app.use(
+  '/uploads',
+  express.static(path.join(__dirname, '../uploads'), {
+    setHeaders: (res: Response, filePath: string) => {
+      // Set correct MIME types
+      const ext = path.extname(filePath).toLowerCase();
+      const mimeTypes: Record<string, string> = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.bmp': 'image/bmp',
+        '.svg': 'image/svg+xml',
+        '.pdf': 'application/pdf',
+      };
+      
+      if (mimeTypes[ext]) {
+        res.type(mimeTypes[ext]);
+      }
+      
+      // Security headers
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      
+      // Cache static files for 1 year
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    },
+    // Return 404 if file not found instead of falling through
+    fallthrough: false,
+  })
+);
+
+// ============================================================================
+// 6. REQUEST LOGGING (for debugging)
+// ============================================================================
+if (process.env.NODE_ENV !== 'production') {
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
+  });
+}
+
+// ============================================================================
+// 7. HEALTH CHECK (before API routes)
+// ============================================================================
+app.get('/health', (req: Request, res: Response) => {
+  const dbStatus = mongoose.connection.readyState;
+  const dbStatusMap: Record<number, string> = {
+    0: 'Disconnected',
+    1: 'Connected',
+    2: 'Connecting',
+    3: 'Disconnecting',
+  };
+
+  res.status(dbStatus === 1 ? 200 : 503).json({
+    status: dbStatus === 1 ? 'OK' : 'Degraded',
+    database: dbStatusMap[dbStatus] || 'Unknown',
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+  });
+});
+
+// ============================================================================
+// 8. ROOT ENDPOINT
+// ============================================================================
 app.get('/', (req: Request, res: Response) => {
   res.json({
     message: 'College NewsFeed API is running!',
-    database: 'Connected to MongoDB Atlas',
-    timestamp: new Date().toISOString()
+    version: '1.0.0',
+    database: mongoose.connection.readyState === 1 ? 'Connected' : 'Not Connected',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: '/health',
+      auth: '/api/auth',
+      admin: '/api/admin',
+      posts: '/api/posts',
+      clubRep: '/api/club-representative',
+      uploads: '/uploads',
+    },
   });
 });
 
-
-
-// API Routes
-app.use('/api/admin', adminRoutes);
-app.use('/api/club-representative', clubRepresentativeRoutes);
-app.use('/api/posts', postRoutes);
-
-
+// ============================================================================
+// 9. API ROUTES
+// ============================================================================
+// Order: Most specific routes first
 app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/posts', postRoutes);
+app.use('/api/club-representative', clubRepresentativeRoutes);
 
-app.get('/health', (req: Request, res: Response) => {
-  res.status(200).json({
-    status: 'OK',
-    database: 'Connected',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString()
-  });
-});
-
-
-
-// Error handling middleware
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error(err.stack);
-  res.status(500).json({
-    message: 'Something went wrong!',
-    error: process.env.NODE_ENV === 'production' ? {} : err.stack
-  });
-});
-
-// 404 handler
+// ============================================================================
+// 10. 404 HANDLER (after all valid routes)
+// ============================================================================
 app.use('*', (req: Request, res: Response) => {
+  console.error(`[404] Route not found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({
-    message: 'Route not found'
+    success: false,
+    message: 'Route not found',
+    path: req.originalUrl,
+    method: req.method,
   });
 });
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('🛑 Shutting down gracefully...');
-  await mongoose.connection.close();
-  process.exit(0);
+// ============================================================================
+// 11. ERROR HANDLER (MUST BE LAST)
+// ============================================================================
+// Express error handlers must have 4 parameters: (err, req, res, next)
+// Reference: https://expressjs.com/en/guide/error-handling.html
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  console.error('[ERROR]', {
+    message: err.message,
+    stack: err.stack,
+    url: req.url,
+    method: req.method,
+    timestamp: new Date().toISOString(),
+  });
+
+  // Don't expose stack traces in production
+  const errorResponse: any = {
+    success: false,
+    message: err.message || 'Internal server error',
+    timestamp: new Date().toISOString(),
+  };
+
+  // Only include stack trace in development
+  if (process.env.NODE_ENV !== 'production') {
+    errorResponse.stack = err.stack;
+    errorResponse.path = req.url;
+  }
+
+  res.status(500).json(errorResponse);
 });
 
-app.listen(PORT, () => {
+// ============================================================================
+// 12. GRACEFUL SHUTDOWN HANDLERS
+// ============================================================================
+const gracefulShutdown = async (signal: string) => {
+  console.log(`\n🛑 ${signal} received, shutting down gracefully...`);
+  
+  try {
+    // Close database connection
+    await mongoose.connection.close();
+    console.log('✅ MongoDB connection closed');
+    
+    // Close server (if you have a server variable)
+    // server.close(() => {
+    //   console.log('✅ HTTP server closed');
+    //   process.exit(0);
+    // });
+    
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error during shutdown:', error);
+    process.exit(1);
+  }
+};
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error: Error) => {
+  console.error('💥 UNCAUGHT EXCEPTION:', error);
+  process.exit(1);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  console.error('💥 UNHANDLED REJECTION:', reason);
+  process.exit(1);
+});
+
+// ============================================================================
+// 13. START SERVER
+// ============================================================================
+const server = app.listen(PORT, () => {
+  console.log('='.repeat(70));
   console.log(`🚀 Server is running on port ${PORT}`);
   console.log(`📍 Local: http://localhost:${PORT}`);
+  console.log(`🗄️  Database: ${mongoose.connection.readyState === 1 ? 'Connected ✅' : 'Connecting...'}`);
+  console.log(`📁 Uploads: ${path.join(__dirname, '../uploads')}`);
+  console.log(`🔒 CORS: ${corsOptions.origin.join(', ')}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log('='.repeat(70));
 });
 
 export default app;

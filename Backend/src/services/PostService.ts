@@ -8,30 +8,36 @@ import { IPost } from '../models/interfaces/IPost';
 export class PostService {
 
   // Create new post
-  static async createPost(
-    userId: string,
-    postData: {
-      title: string;
-      content: string;
-      categoryId: string;
-      postType: 'announcement' | 'event' | 'news' | 'general';
-      priority?: 'low' | 'medium' | 'high';
-      media?: any[];
-      eventDetails?: any;
-      registrationLink?: string;
-      scheduledFor?: Date;
+// services/PostService.ts - FIXED createPost
+static async createPost(
+  userId: string,
+  postData: {
+    title: string;
+    content: string;
+    categoryId?: string; // ✅ CHANGED: Make optional
+    postType: 'event' | 'workshop' | 'competition' | 'hackathon' | 'seminar' | 
+              'cultural' | 'sports' | 'recruitment' | 'announcement' | 'notice'; // ✅ UPDATED types
+    priority?: 'low' | 'medium' | 'high';
+    imageUrl?: string; // ✅ ADDED: For image upload
+    eventDetails?: any;
+    registrationLink?: string;
+    scheduledFor?: Date;
+    clubId?: Types.ObjectId; // ✅ ADDED: From middleware
+    authorType?: 'club' | 'faculty' | 'admin'; // ✅ ADDED: From middleware
+  }
+) {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
     }
-  ) {
-    try {
-      const user = await User.findById(userId);
-      if (!user) {
-        throw new Error('User not found');
-      }
 
-      // Determine author type and club ID
-      let authorType: 'faculty' | 'club';
-      let clubId: Types.ObjectId | undefined;
+    // ✅ UPDATED: Use authorType/clubId from middleware if provided
+    let authorType = postData.authorType || 'club';
+    let clubId = postData.clubId;
 
+    // Fallback: determine from user if not provided by middleware
+    if (!postData.authorType) {
       if (user.role === 'student') {
         if (!user.clubRepresentative?.isActive) {
           throw new Error('Club representative status required to create posts');
@@ -39,54 +45,58 @@ export class PostService {
         authorType = 'club';
         clubId = user.clubRepresentative.clubId;
       } else if (user.role === 'admin') {
-        // Admin can create posts as faculty type
-        authorType = 'faculty';
+        authorType = 'admin'; // ✅ CHANGED: admin as admin, not faculty
       } else {
         throw new Error('Invalid user role for post creation');
       }
+    }
 
-      // Verify category exists
+    // ✅ UPDATED: Only verify category if provided
+    let categoryId: Types.ObjectId | undefined;
+    if (postData.categoryId) {
       const category = await Category.findById(postData.categoryId);
       if (!category || !category.isActive) {
         throw new Error('Invalid or inactive category');
       }
-
-      // Create post
-      const post = new Post({
-        title: postData.title,
-        content: postData.content,
-        createdBy: new Types.ObjectId(userId),
-        authorType,
-        clubId,
-        categoryId: new Types.ObjectId(postData.categoryId),
-        postType: postData.postType,
-        priority: postData.priority || 'medium',
-        media: postData.media || [],
-        eventDetails: postData.eventDetails,
-        registrationLink: postData.registrationLink,
-        status: 'pending', // All posts start as pending
-        scheduledFor: postData.scheduledFor,
-        publishedAt: new Date()
-      });
-
-      await post.save();
-
-      // Populate the post with related data
-      const populatedPost = await Post.findById(post._id)
-        .populate('createdBy', 'fullName email username')
-        .populate('clubId', 'clubName clubtype')
-        .populate('categoryId', 'name slug');
-
-      console.log(`📝 Post created: "${post.title}" by ${user.fullName} (${authorType})`);
-
-      return {
-        message: 'Post created successfully',
-        post: populatedPost
-      };
-    } catch (error: any) {
-      throw new Error(error.message || 'Failed to create post');
+      categoryId = new Types.ObjectId(postData.categoryId);
     }
+
+    // ✅ UPDATED: Create post with new fields
+    const post = new Post({
+      title: postData.title,
+      content: postData.content,
+      createdBy: new Types.ObjectId(userId),
+      authorType,
+      clubId,
+      categoryId, // ✅ Can be undefined now
+      postType: postData.postType,
+      priority: postData.priority || 'medium',
+      imageUrl: postData.imageUrl, // ✅ ADDED
+      eventDetails: postData.eventDetails,
+      registrationLink: postData.registrationLink,
+      status: 'pending', // All posts start as pending for moderation
+      scheduledFor: postData.scheduledFor,
+    });
+
+    await post.save();
+
+    // Populate the post with related data
+    const populatedPost = await Post.findById(post._id)
+      .populate('createdBy', 'fullName email username')
+      .populate('clubId', 'clubName clubtype')
+      .populate('categoryId', 'name slug');
+
+    console.log(`📝 Post created: "${post.title}" by ${user.fullName} (${authorType})`);
+
+    return {
+      message: 'Post created successfully and submitted for moderation',
+      post: populatedPost
+    };
+  } catch (error: any) {
+    throw new Error(error.message || 'Failed to create post');
   }
+}
+
 
   // Get all posts with filters
   static async getAllPosts(

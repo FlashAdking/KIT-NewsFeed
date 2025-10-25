@@ -1,3 +1,6 @@
+// ============================================================================
+// services/EventRegistrationService.ts - SIMPLIFIED FOR YOUR SCHEMA
+// ============================================================================
 import { Post } from '../models/Post';
 import { User } from '../models/User';
 import { EventRegistration } from '../models/EventRegistration';
@@ -5,132 +8,122 @@ import { Types } from 'mongoose';
 
 export class EventRegistrationService {
   
-  // Student registers for an event
+  // ========================================================================
+  // STUDENT REGISTERS FOR EVENT
+  // ========================================================================
   static async registerForEvent(userId: string, postId: string, paymentMethod?: string) {
     try {
-      // Verify event exists and registration is open
+      // Verify event exists
       const post = await Post.findById(postId);
       if (!post || post.postType !== 'event') {
         throw new Error('Event not found');
       }
       
-      if (!post.eventDetails?.registrationRequired) {
-        throw new Error('This event does not require registration');
+      // Check if event date exists
+      if (!post.eventDetails?.eventDate) {
+        throw new Error('Invalid event details');
       }
       
-      // Check registration deadline
-      if (post.eventDetails.registrationDeadline && 
-          new Date() > post.eventDetails.registrationDeadline) {
-        throw new Error('Registration deadline has passed');
+      // Check if event has already passed
+      if (new Date() > post.eventDetails.eventDate) {
+        throw new Error('This event has already passed');
       }
       
       // Check if user already registered
       const existingRegistration = await EventRegistration.findOne({
         postId: new Types.ObjectId(postId),
-        userId: new Types.ObjectId(userId)
+        userId: new Types.ObjectId(userId),
+        status: { $ne: 'cancelled' } // Exclude cancelled registrations
       });
       
       if (existingRegistration) {
-        throw new Error('Already registered for this event');
+        throw new Error('You are already registered for this event');
       }
       
-      // Check capacity
-      const currentRegistrations = await EventRegistration.countDocuments({
-        postId: new Types.ObjectId(postId),
-        status: { $in: ['registered', 'approved'] }
-      });
+      // Check capacity (if maxParticipants is set)
+      const maxParticipants = post.eventDetails.maxParticipants;
+      let registrationStatus: 'registered' | 'waitlisted' = 'registered';
       
-      const maxParticipants = post.eventDetails.maxParticipants || 0;
-      let registrationStatus = 'registered';
-      
-      // Handle capacity limits
-      if (maxParticipants > 0 && currentRegistrations >= maxParticipants) {
-        if (post.eventDetails.allowWaitlist) {
-          registrationStatus = 'waitlisted';
-        } else {
-          throw new Error('Event is full and waitlist is not available');
+      if (maxParticipants && maxParticipants > 0) {
+        const currentRegistrations = await EventRegistration.countDocuments({
+          postId: new Types.ObjectId(postId),
+          status: 'registered'
+        });
+        
+        if (currentRegistrations >= maxParticipants) {
+          // Event is full - no waitlist in simplified version
+          throw new Error('Event is full. Registration closed.');
         }
       }
       
-      // Handle approval requirement
-      if (post.eventDetails.requiresApproval && registrationStatus === 'registered') {
-        registrationStatus = 'registered'; // Will need approval later
-      }
-      
-      // Determine payment info
-      const registrationFee = post.eventDetails.registrationFee || 0;
-      const paymentStatus = registrationFee > 0 ? 'pending' : 'paid';
-      const method = registrationFee > 0 ? (paymentMethod || 'upi') : 'free';
-      
-      // Create registration
+      // Create registration (simplified - no payment for now)
       const registration = new EventRegistration({
         postId: new Types.ObjectId(postId),
         userId: new Types.ObjectId(userId),
         status: registrationStatus,
-        payment: {
-          status: paymentStatus,
-          amount: registrationFee,
-          method,
-          ...(registrationFee === 0 && { paidAt: new Date() })
-        },
         registeredAt: new Date()
       });
       
       await registration.save();
       
-      // Update post statistics
-      await this.updateRegistrationStats(postId);
-      
+      // Populate user and post details
       const populatedRegistration = await EventRegistration.findById(registration._id)
         .populate('userId', 'fullName email username')
         .populate('postId', 'title eventDetails');
       
-      console.log(`📝 Event registration: ${(populatedRegistration?.userId as any)?.fullName} → ${(populatedRegistration?.postId as any)?.title}`);
+      console.log(`✅ Registration: ${(populatedRegistration?.userId as any)?.fullName} → ${(populatedRegistration?.postId as any)?.title}`);
       
       return {
-        message: `Successfully ${registrationStatus === 'waitlisted' ? 'added to waitlist' : 'registered'} for event`,
-        registration: populatedRegistration,
-        requiresPayment: registrationFee > 0,
-        paymentAmount: registrationFee
+        success: true,
+        message: 'Successfully registered for event',
+        registration: populatedRegistration
       };
     } catch (error: any) {
       throw new Error(error.message || 'Failed to register for event');
     }
   }
   
-  // Get registrations for a specific event (for club representatives)
-  static async getEventRegistrations(postId: string, adminUserId: string) {
+  // ========================================================================
+  // GET EVENT REGISTRATIONS (for event creators/admins)
+  // ========================================================================
+  static async getEventRegistrations(postId: string, requestingUserId: string) {
     try {
-      // Verify user can view registrations (handled by middleware)
+      // Verify post exists and user has permission (handled by middleware)
+      const post = await Post.findById(postId);
+      if (!post) {
+        throw new Error('Event not found');
+      }
+      
+      // Get all registrations
       const registrations = await EventRegistration.find({ 
-        postId: new Types.ObjectId(postId) 
+        postId: new Types.ObjectId(postId),
+        status: { $ne: 'cancelled' } // Exclude cancelled
       })
       .populate('userId', 'fullName email username department semester phone')
-      .populate('approvedBy', 'fullName email')
       .sort({ registeredAt: -1 });
       
       // Group by status
       const grouped = {
         registered: registrations.filter(r => r.status === 'registered'),
-        approved: registrations.filter(r => r.status === 'approved'),
         waitlisted: registrations.filter(r => r.status === 'waitlisted'),
         cancelled: registrations.filter(r => r.status === 'cancelled'),
-        rejected: registrations.filter(r => r.status === 'rejected')
       };
       
-      // Payment summary
-      const paymentSummary = {
+      // Summary stats
+      const summary = {
         totalRegistrations: registrations.length,
-        paidCount: registrations.filter(r => r.payment.status === 'paid').length,
-        pendingPayments: registrations.filter(r => r.payment.status === 'pending').length,
-        totalRevenue: registrations
-          .filter(r => r.payment.status === 'paid')
-          .reduce((sum, r) => sum + r.payment.amount, 0)
+        maxParticipants: post.eventDetails?.maxParticipants || null,
+        spotsRemaining: post.eventDetails?.maxParticipants 
+          ? Math.max(0, post.eventDetails.maxParticipants - registrations.length)
+          : null,
+        registeredCount: grouped.registered.length,
+        waitlistedCount: grouped.waitlisted.length,
       };
       
       return {
+        success: true,
         registrations: grouped,
-        summary: paymentSummary,
+        summary,
         total: registrations.length
       };
     } catch (error: any) {
@@ -138,15 +131,17 @@ export class EventRegistrationService {
     }
   }
   
-  // Get user's registrations
+  // ========================================================================
+  // GET USER'S REGISTRATIONS
+  // ========================================================================
   static async getUserRegistrations(userId: string) {
     try {
       const registrations = await EventRegistration.find({
         userId: new Types.ObjectId(userId)
       })
-      .populate('postId', 'title eventDetails clubId')
       .populate({
         path: 'postId',
+        select: 'title imageUrl eventDetails postType',
         populate: {
           path: 'clubId',
           select: 'clubName clubtype'
@@ -154,16 +149,35 @@ export class EventRegistrationService {
       })
       .sort({ registeredAt: -1 });
       
+      // Separate into upcoming and past events
+      const now = new Date();
+      const upcoming = registrations.filter(r => {
+        const post = r.postId as any;
+        return post?.eventDetails?.eventDate && new Date(post.eventDetails.eventDate) > now;
+      });
+      
+      const past = registrations.filter(r => {
+        const post = r.postId as any;
+        return post?.eventDetails?.eventDate && new Date(post.eventDetails.eventDate) <= now;
+      });
+      
       return {
-        registrations,
+        success: true,
+        registrations: {
+          upcoming,
+          past,
+          all: registrations
+        },
         total: registrations.length
       };
     } catch (error: any) {
-      throw new Error(error.message || 'Failed to fetch user registrations');
+      throw new Error(error.message || 'Failed to fetch your registrations');
     }
   }
   
-  // Cancel registration
+  // ========================================================================
+  // CANCEL REGISTRATION
+  // ========================================================================
   static async cancelRegistration(userId: string, registrationId: string) {
     try {
       const registration = await EventRegistration.findOne({
@@ -179,21 +193,31 @@ export class EventRegistrationService {
         throw new Error('Registration already cancelled');
       }
       
-      // Check if cancellation is allowed (e.g., before event date)
+      // Check if event has already started
       const post = await Post.findById(registration.postId);
-      if (post?.eventDetails?.eventDate && new Date() > post.eventDetails.eventDate) {
-        throw new Error('Cannot cancel registration after event date');
+      if (post?.eventDetails?.eventDate) {
+        const eventDate = new Date(post.eventDetails.eventDate);
+        const now = new Date();
+        
+        // Don't allow cancellation if event started
+        if (now > eventDate) {
+          throw new Error('Cannot cancel registration for past events');
+        }
+        
+        // Optional: Don't allow cancellation within 24 hours of event
+        const hoursUntilEvent = (eventDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+        if (hoursUntilEvent < 24) {
+          throw new Error('Cannot cancel registration within 24 hours of event start');
+        }
       }
       
       registration.status = 'cancelled';
       await registration.save();
       
-      // Update post statistics
-      await this.updateRegistrationStats(registration.postId.toString());
-      
-      // TODO: Handle refund if payment was made
+      console.log(`❌ Registration cancelled: ${userId} for event ${registration.postId}`);
       
       return {
+        success: true,
         message: 'Registration cancelled successfully',
         registration
       };
@@ -202,59 +226,80 @@ export class EventRegistrationService {
     }
   }
   
-  // Update registration statistics in post
-  static async updateRegistrationStats(postId: string) {
+  // ========================================================================
+  // CHECK REGISTRATION STATUS
+  // ========================================================================
+  static async checkRegistrationStatus(userId: string, postId: string) {
     try {
-      const registrations = await EventRegistration.find({ 
-        postId: new Types.ObjectId(postId) 
+      const registration = await EventRegistration.findOne({
+        postId: new Types.ObjectId(postId),
+        userId: new Types.ObjectId(userId),
+        status: { $ne: 'cancelled' }
       });
       
-      const stats = {
-        totalRegistered: registrations.filter(r => 
-          ['registered', 'approved'].includes(r.status)
-        ).length,
-        totalPaid: registrations.filter(r => r.payment.status === 'paid').length,
-        totalRevenue: registrations
-          .filter(r => r.payment.status === 'paid')
-          .reduce((sum, r) => sum + r.payment.amount, 0),
-        waitlistCount: registrations.filter(r => r.status === 'waitlisted').length
+      return {
+        success: true,
+        isRegistered: !!registration,
+        registration: registration || null,
+        status: registration?.status || null
       };
-      
-      await Post.findByIdAndUpdate(postId, { registrationStats: stats });
     } catch (error: any) {
-      console.error('Failed to update registration stats:', error);
+      throw new Error(error.message || 'Failed to check registration status');
     }
   }
   
-  // Approve/reject registration (for events requiring approval)
-  static async processRegistration(
-    adminUserId: string,
-    registrationId: string,
-    decision: 'approved' | 'rejected',
-    notes?: string
-  ) {
+  // ========================================================================
+  // GET EVENT STATS (public)
+  // ========================================================================
+  static async getEventStats(postId: string) {
+    try {
+      const post = await Post.findById(postId);
+      if (!post || post.postType !== 'event') {
+        throw new Error('Event not found');
+      }
+      
+      const registrations = await EventRegistration.countDocuments({
+        postId: new Types.ObjectId(postId),
+        status: 'registered'
+      });
+      
+      const maxParticipants = post.eventDetails?.maxParticipants;
+      
+      return {
+        success: true,
+        stats: {
+          totalRegistrations: registrations,
+          maxParticipants: maxParticipants || null,
+          spotsRemaining: maxParticipants ? Math.max(0, maxParticipants - registrations) : null,
+          isFull: maxParticipants ? registrations >= maxParticipants : false
+        }
+      };
+    } catch (error: any) {
+      throw new Error(error.message || 'Failed to fetch event stats');
+    }
+  }
+  
+  // ========================================================================
+  // DELETE REGISTRATION (admin only)
+  // ========================================================================
+  static async deleteRegistration(registrationId: string, adminUserId: string) {
     try {
       const registration = await EventRegistration.findById(registrationId);
+      
       if (!registration) {
         throw new Error('Registration not found');
       }
       
-      registration.status = decision;
-      registration.approvedBy = new Types.ObjectId(adminUserId);
-      registration.approvedAt = new Date();
-      registration.notes = notes;
+      await registration.deleteOne();
       
-      await registration.save();
-      
-      // Update post statistics
-      await this.updateRegistrationStats(registration.postId.toString());
+      console.log(`🗑️ Registration deleted by admin ${adminUserId}`);
       
       return {
-        message: `Registration ${decision} successfully`,
-        registration
+        success: true,
+        message: 'Registration deleted successfully'
       };
     } catch (error: any) {
-      throw new Error(error.message || 'Failed to process registration');
+      throw new Error(error.message || 'Failed to delete registration');
     }
   }
 }

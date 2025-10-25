@@ -11,7 +11,7 @@ export interface IClub extends Document {
 
     //club details
     establishedYear?: number;
-    clubtype: 'academic' | 'cultural' | 'sports' | 'technical' | 'social';
+    clubtype:  'cultural' | 'sports' | 'technical' | 'social' | 'entrepreneurship' | 'arts' | 'literary' | 'music' | 'dance';
     logo?: string;
     coverImage?: string;
     email?: string;

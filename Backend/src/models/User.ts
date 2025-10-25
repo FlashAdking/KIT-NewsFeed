@@ -44,7 +44,8 @@ const userSchema = new Schema<IUser>(
     clubRepresentative: {
       isActive: { type: Boolean, default: false },
       clubId: { type: Schema.Types.ObjectId, ref: "Club" },
-      clubPosition: String, // ✅ Add this if not present
+      ClubName: String,
+      clubPosition: String, 
       approvedBy: { type: Schema.Types.ObjectId, ref: "User" },
       approvedAt: Date,
       rejectedAt: Date,

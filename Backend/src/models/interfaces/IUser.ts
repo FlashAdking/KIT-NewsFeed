@@ -24,6 +24,7 @@ export interface IUser extends Document {
   clubRepresentative?: {
     isActive: boolean;
     clubId?: Types.ObjectId;
+    ClubName?: string; // ✅ Add this if not present
     clubPosition?: string;
     approvedBy?: Types.ObjectId;
     approvedAt?: Date;

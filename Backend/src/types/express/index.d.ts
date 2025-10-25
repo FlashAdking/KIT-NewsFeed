@@ -1,10 +1,11 @@
-// src/types/express/index.d.ts
-export {};
+// Backend/src/types/express/index.d.ts
+import 'multer';
 
 declare global {
   namespace Express {
     interface Request {
-      user?: any; // or a stricter User type
+      file?: Express.Multer.File;
+      user?: any;
     }
   }
 }
