@@ -22,7 +22,7 @@ function App() {
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/event/:id" element={<EventDetails />} />
           <Route path="/request-representative" element={<RaiseRepRequest />} />
-          <Route path="/categories" element={<CreatePost />} />
+          <Route path="/create-post" element={<CreatePost />} />
         </Routes>
       </Router>
     </ToastProvider>

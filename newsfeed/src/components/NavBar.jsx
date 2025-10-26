@@ -286,14 +286,7 @@ const NavBar = ({
                       <span className="dropdown-menu-icon">👤</span>
                       <span>My Profile</span>
                     </button>
-                    <button
-                      role="menuitem"
-                      className="dropdown-menu-item"
-                      onClick={() => handleMenuItemClick("/settings")}
-                    >
-                      <span className="dropdown-menu-icon">⚙️</span>
-                      <span>Settings</span>
-                    </button>
+                   
                     <div className="dropdown-menu-divider"></div>
                     <button
                       role="menuitem"

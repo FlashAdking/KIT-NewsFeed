@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { redirect, useNavigate } from "react-router-dom";
 import { useToast } from "./components/ToastProvider";
 import NavBar from "./components/NavBar";
 import "./css/RaiseRepRequest.css";
@@ -11,18 +11,19 @@ function RaiseRepRequest() {
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
-
+  const [filePreview, setFilePreview] = useState(null);
   const [formData, setFormData] = useState({
     clubName: "",
-    clubType: "", // ✅ Added
-    collegeName: "",
+    clubType: "",
     fullName: "",
     email: "",
     clubPosition: "",
     officialEmail: "",
     officialPhone: "",
-    recommendationLetterUrl: "",
+    verificationDocument: null,
   });
+
+
 
   const navigate = useNavigate();
   const { showSuccess, showError } = useToast();
@@ -42,6 +43,7 @@ function RaiseRepRequest() {
       const userData = JSON.parse(cache);
       setUserProfile(userData);
 
+      // ✅ Set all user data at once
       setFormData((prev) => ({
         ...prev,
         fullName: userData.fullName || "",
@@ -52,6 +54,7 @@ function RaiseRepRequest() {
       navigate("/login");
     }
   };
+
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -106,69 +109,61 @@ function RaiseRepRequest() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.clubName) {
-      showError("Please enter club name");
+    // Validate file
+    if (!formData.verificationDocument) {
+      showError('Please upload a verification document');
       return;
     }
-
-    if (!formData.clubType) {
-      // ✅ Added
-      showError("Please select club type");
-      return;
-    }
-
-    if (!formData.collegeName) {
-      showError("Please enter college name");
-      return;
-    }
-
-    if (!formData.clubPosition) {
-      showError("Please select a position");
-      return;
-    }
-
-    setSubmitting(true);
 
     try {
+      setSubmitting(true);
+
       const token = localStorage.getItem("token");
+      if (!token) {
+        showError("Please login to continue");
+        navigate("/login");
+        return;
+      }
 
-      const payload = {
-        clubName: formData.clubName,
-        clubType: formData.clubType, // ✅ Added
-        collegeName: formData.collegeName,
-        clubPosition: formData.clubPosition,
-        officialEmail: formData.officialEmail,
-        officialPhone: formData.officialPhone,
-        recommendationLetterUrl: formData.recommendationLetterUrl,
-      };
+      const formDataToSend = new FormData();
 
-      const response = await fetch(
-        `${API_BASE}/api/club-representative/apply`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(payload),
-        }
-      );
+      // Add all fields
+      formDataToSend.append('clubName', formData.clubName);
+      formDataToSend.append('clubType', formData.clubType);
+      formDataToSend.append('fullName', formData.fullName);
+      formDataToSend.append('email', formData.email);
+      formDataToSend.append('clubPosition', formData.clubPosition);
+      formDataToSend.append('officialEmail', formData.officialEmail);
+      formDataToSend.append('officialPhone', formData.officialPhone);
+      formDataToSend.append('statement', formData.statement || '');
+      formDataToSend.append('verificationDocument', formData.verificationDocument);
+
+      const response = await fetch('http://localhost:8080/api/club-representative/apply', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formDataToSend,
+      });
+
+      const data = await response.json();
 
       if (response.ok) {
-        showSuccess(
-          "Application submitted successfully! Waiting for admin approval."
-        );
-        navigate("/profile");
+        showSuccess('Application submitted successfully! Redirecting to profile...');
+        // ✅ This navigates to profile after 1.5 seconds
+        setTimeout(() => navigate('/profile'), 1500);
       } else {
-        const error = await response.json();
-        showError(error.message || "Failed to submit application");
+        showError(data.message || 'Failed to submit application');
       }
     } catch (error) {
-      showError("Network error. Please try again");
+      console.error('Submit error:', error);
+      showError('Network error. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
+
+
 
   if (loading) {
     return (
@@ -211,6 +206,45 @@ function RaiseRepRequest() {
     );
   }
 
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+    if (!allowedTypes.includes(file.type)) {
+      showError('Only PDF and image files (JPEG, PNG) are allowed');
+      e.target.value = '';
+      return;
+    }
+
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      showError('File size must be less than 5MB');
+      e.target.value = '';
+      return;
+    }
+
+    setFormData(prev => ({ ...prev, verificationDocument: file }));
+
+    // Create preview
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFilePreview({ type: 'image', url: reader.result });
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setFilePreview({
+        type: 'pdf',
+        name: file.name,
+        size: (file.size / 1024).toFixed(2)
+      });
+    }
+  };
+
   return (
     <>
       <NavBar
@@ -238,18 +272,6 @@ function RaiseRepRequest() {
             {/* Club Information */}
             <div className="form-section">
               <h3>Club Information</h3>
-
-              <div className="form-group">
-                <label>College Name *</label>
-                <input
-                  type="text"
-                  name="collegeName"
-                  value={formData.collegeName}
-                  onChange={handleInputChange}
-                  placeholder="Enter your college name"
-                  required
-                />
-              </div>
 
               <div className="form-group">
                 <label>Club Name *</label>
@@ -366,23 +388,60 @@ function RaiseRepRequest() {
               </div>
             </div>
 
-            {/* Supporting Documents */}
+            {/* Replace or add after Official Contact section */}
+
+            {/* Verification Document Upload */}
+            {/* Verification Document Section */}
             <div className="form-section">
-              <h3>Position Recommendation Letter</h3>
+              <h3>Verification Document *</h3>
+
               <div className="form-group">
-                <label>Recommendation Letter URL (Optional)</label>
+                <label>Upload Position Verification (PDF or Image)</label>
                 <input
-                  type="url"
-                  name="recommendationLetterUrl"
-                  value={formData.recommendationLetterUrl}
-                  onChange={handleInputChange}
-                  placeholder="https://drive.google.com/... (Google Drive, Dropbox, etc.)"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={handleFileChange}
+                  required
+                  className="file-input"
                 />
-                <small>
-                  Upload your position recommendation letter if available
+                <small className="form-help-text">
+                  Upload a document that verifies your position (ID card, appointment letter, certificate, etc.)
+                  <br />
+                  <strong>Accepted formats:</strong> PDF, JPG, PNG (Max 5MB)
                 </small>
               </div>
+
+              {/* File Preview */}
+              {filePreview && (
+                <div className="file-preview">
+                  {filePreview.type === 'image' ? (
+                    <div className="image-preview">
+                      <img src={filePreview.url} alt="Preview" />
+                    </div>
+                  ) : (
+                    <div className="pdf-preview">
+                      <div className="pdf-icon">📄</div>
+                      <div className="pdf-info">
+                        <div className="pdf-name">{filePreview.name}</div>
+                        <div className="pdf-size">{filePreview.size} KB</div>
+                      </div>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="remove-file-btn"
+                    onClick={() => {
+                      setFormData(prev => ({ ...prev, verificationDocument: null }));
+                      setFilePreview(null);
+                    }}
+                  >
+                    Remove File
+                  </button>
+                </div>
+              )}
             </div>
+
+
 
             {/* Submit Button */}
             <div className="form-actions-rep">
@@ -397,6 +456,7 @@ function RaiseRepRequest() {
               <button
                 type="submit"
                 className="submit-btn-rep"
+                onClick={() => redirect("/profile")}
                 disabled={submitting}
               >
                 {submitting ? "Submitting..." : "Submit Application"}

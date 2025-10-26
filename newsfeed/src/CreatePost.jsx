@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useToast } from "./components/ToastProvider";
 
+const API_BASE = "http://localhost:8080";
+
 function CreatePost() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -13,8 +15,8 @@ function CreatePost() {
   const [formData, setFormData] = useState({
     title: "",
     content: "",
-    categoryId: "",
     postType: "event",
+    priority: "medium",
     eventDetails: {
       eventDate: "",
       eventTime: "",
@@ -24,55 +26,51 @@ function CreatePost() {
     registrationLink: "",
   });
 
-  const [categories, setCategories] = useState([]);
-
   useEffect(() => {
-    fetchCategories();
     if (id) {
       fetchPost(id);
     }
-    // eslint-disable-next-line
   }, [id]);
-
-  const fetchCategories = async () => {
-    try {
-      const response = await fetch("http://localhost:8080/api/categories");
-      const result = await response.json();
-      if (result.success) {
-        setCategories(result.data?.categories || []);
-      }
-    } catch (error) {
-      console.error("Failed to fetch categories:", error);
-    }
-  };
 
   const fetchPost = async (postId) => {
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(
-        `http://localhost:8080/api/posts/${postId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const response = await fetch(`${API_BASE}/api/posts/${postId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (response.ok) {
         const result = await response.json();
         const post = result.data?.post || result.post;
+
+        let eventDate = "";
+        let eventTime = "";
+        if (post.eventDetails?.eventDate) {
+          const date = new Date(post.eventDetails.eventDate);
+          eventDate = date.toISOString().split("T")[0];
+          eventTime = date.toTimeString().slice(0, 5);
+        }
+
         setFormData({
           title: post.title,
           content: post.content,
-          categoryId: post.categoryId?._id || post.categoryId,
-          postType: post.postType,
-          eventDetails: post.eventDetails || {},
+          postType: post.postType || "event",
+          priority: post.priority || "medium",
+          eventDetails: {
+            eventDate,
+            eventTime,
+            venue: post.eventDetails?.venue || "",
+            maxParticipants: post.eventDetails?.maxParticipants || "",
+          },
           registrationLink: post.registrationLink || "",
         });
 
         if (post.imageUrl) {
-          setImagePreview(post.imageUrl);
+          setImagePreview(`${API_BASE}${post.imageUrl}`);
         }
       }
     } catch (error) {
+      console.error("Failed to load post:", error);
       showError("Failed to load post");
     }
   };
@@ -101,6 +99,11 @@ function CreatePost() {
         return;
       }
 
+      if (!file.type.startsWith("image/")) {
+        showError("Please upload an image file");
+        return;
+      }
+
       setImageFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -121,24 +124,66 @@ function CreatePost() {
 
     try {
       const token = localStorage.getItem("token");
+
+      if (!token) {
+        showError("Please login first");
+        setLoading(false);
+        navigate("/login");
+        return;
+      }
+
+      if (!formData.title.trim() || !formData.content.trim()) {
+        showError("Title and content are required");
+        setLoading(false);
+        return;
+      }
+
+      const eventTypes = [
+        "event",
+        "workshop",
+        "competition",
+        "hackathon",
+        "seminar",
+        "cultural",
+        "sports",
+      ];
+
+      if (eventTypes.includes(formData.postType)) {
+        if (!formData.eventDetails.eventDate) {
+          showError("Event date is required");
+          setLoading(false);
+          return;
+        }
+      }
+
       const url = id
-        ? `http://localhost:8080/api/posts/${id}`
-        : "http://localhost:8080/api/posts";
+        ? `${API_BASE}/api/posts/${id}`
+        : `${API_BASE}/api/posts`;
 
       const method = id ? "PUT" : "POST";
 
-      // Create FormData to handle file upload
       const submitData = new FormData();
-      submitData.append("title", formData.title);
-      submitData.append("content", formData.content);
-      submitData.append("categoryId", formData.categoryId);
+      submitData.append("title", formData.title.trim());
+      submitData.append("content", formData.content.trim());
       submitData.append("postType", formData.postType);
+      submitData.append("priority", formData.priority);
 
-      if (formData.postType === "event") {
-        submitData.append(
-          "eventDetails",
-          JSON.stringify(formData.eventDetails)
-        );
+      if (eventTypes.includes(formData.postType)) {
+        const eventDetails = {
+          eventDate: formData.eventDetails.eventDate
+            ? `${formData.eventDetails.eventDate}T${
+                formData.eventDetails.eventTime || "00:00"
+              }:00`
+            : undefined,
+          eventTime: formData.eventDetails.eventTime || undefined,
+          venue: formData.eventDetails.venue || undefined,
+          maxParticipants: formData.eventDetails.maxParticipants
+            ? parseInt(formData.eventDetails.maxParticipants)
+            : null,
+        };
+
+        submitData.append("eventDetails", JSON.stringify(eventDetails));
+
         if (formData.registrationLink) {
           submitData.append("registrationLink", formData.registrationLink);
         }
@@ -148,6 +193,9 @@ function CreatePost() {
         submitData.append("image", imageFile);
       }
 
+      console.log("Submitting to:", url);
+      console.log("Method:", method);
+
       const response = await fetch(url, {
         method,
         headers: {
@@ -156,22 +204,42 @@ function CreatePost() {
         body: submitData,
       });
 
-      const result = await response.json();
+      console.log("Response status:", response.status);
 
-      if (response.ok) {
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Error response:", errorText);
+        throw new Error(`Failed to save post (${response.status})`);
+      }
+
+      const result = await response.json();
+      console.log("Response:", result);
+
+      if (result.success) {
         showSuccess(
-          id ? "Post updated successfully!" : "Post created successfully!"
+          id ? "Post updated successfully!" : "Post submitted for moderation!"
         );
         navigate("/profile");
       } else {
         showError(result.message || "Failed to save post");
       }
     } catch (error) {
-      showError("Network error occurred");
+      console.error("Submit error:", error);
+      showError(error.message || "Failed to save post. Please try again.");
     } finally {
       setLoading(false);
     }
   };
+
+  const showEventDetails = [
+    "event",
+    "workshop",
+    "competition",
+    "hackathon",
+    "seminar",
+    "cultural",
+    "sports",
+  ].includes(formData.postType);
 
   return (
     <div style={styles.container}>
@@ -238,6 +306,7 @@ function CreatePost() {
                 onChange={handleChange}
                 placeholder="Enter a catchy title for your post"
                 required
+                maxLength={200}
                 style={styles.input}
               />
             </div>
@@ -251,10 +320,12 @@ function CreatePost() {
                 placeholder="Provide detailed information about your post..."
                 required
                 rows="5"
+                maxLength={5000}
                 style={styles.textarea}
               />
             </div>
 
+            <div style={styles.formRow}>
               <div style={styles.formGroup}>
                 <label style={styles.label}>Post Type *</label>
                 <select
@@ -264,16 +335,36 @@ function CreatePost() {
                   style={styles.select}
                 >
                   <option value="event">📅 Event</option>
+                  <option value="workshop">🎓 Workshop</option>
+                  <option value="competition">🏆 Competition</option>
+                  <option value="hackathon">💻 Hackathon</option>
+                  <option value="seminar">🎤 Seminar/Talk</option>
+                  <option value="cultural">🎭 Cultural Event</option>
+                  <option value="sports">⚽ Sports Event</option>
+                  <option value="recruitment">👔 Recruitment Drive</option>
                   <option value="announcement">📢 Announcement</option>
-                  <option value="news">📰 News</option>
-                  <option value="general">💬 General</option>
+                  <option value="notice">📋 Important Notice</option>
+                </select>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Priority *</label>
+                <select
+                  name="priority"
+                  value={formData.priority}
+                  onChange={handleChange}
+                  style={styles.select}
+                >
+                  <option value="low">🔵 Low</option>
+                  <option value="medium">🟡 Medium</option>
+                  <option value="high">🔴 High</option>
                 </select>
               </div>
             </div>
-          
+          </div>
 
-          {/* Event Details - Show only when postType is 'event' */}
-          {formData.postType === "event" && (
+          {/* Event Details - Show for event-type posts */}
+          {showEventDetails && (
             <div style={styles.section}>
               <label style={styles.sectionLabel}>📅 Event Details</label>
 
@@ -286,7 +377,8 @@ function CreatePost() {
                     value={formData.eventDetails.eventDate}
                     onChange={handleChange}
                     style={styles.input}
-                    required={formData.postType === "event"}
+                    required
+                    min={new Date().toISOString().split("T")[0]}
                   />
                 </div>
 
@@ -312,6 +404,7 @@ function CreatePost() {
                     onChange={handleChange}
                     placeholder="Event location or online link"
                     style={styles.input}
+                    maxLength={200}
                   />
                 </div>
 
@@ -324,8 +417,11 @@ function CreatePost() {
                     onChange={handleChange}
                     placeholder="Leave empty for unlimited"
                     style={styles.input}
-                    min="1"
+                    min="0"
                   />
+                  <small style={styles.hint}>
+                    Leave empty or 0 for unlimited participants
+                  </small>
                 </div>
               </div>
 
@@ -349,6 +445,7 @@ function CreatePost() {
               type="button"
               style={styles.cancelBtn}
               onClick={() => navigate("/profile")}
+              disabled={loading}
             >
               Cancel
             </button>
@@ -386,7 +483,7 @@ const styles = {
   },
   header: {
     display: "flex",
-    alignItems: "middle",
+    alignItems: "center",
     gap: "20px",
     marginBottom: "40px",
   },
@@ -410,7 +507,7 @@ const styles = {
     margin: "0 0 8px 0",
   },
   subtitle: {
-    fontSize: "18px",
+    fontSize: "16px",
     color: "#6b7280",
     margin: 0,
   },
@@ -428,7 +525,7 @@ const styles = {
   sectionLabel: {
     display: "flex",
     alignItems: "center",
-    fontSize: "22px",
+    fontSize: "20px",
     fontWeight: "600",
     color: "#374151",
     marginBottom: "20px",
@@ -503,7 +600,7 @@ const styles = {
   },
   formRow: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
+    gridTemplateColumns: "1fr 1fr",
     gap: "20px",
   },
   formGroup: {
@@ -514,7 +611,7 @@ const styles = {
   label: {
     display: "flex",
     alignItems: "center",
-    fontSize: "18px",
+    fontSize: "15px",
     fontWeight: "600",
     color: "#374151",
     gap: "6px",
@@ -526,9 +623,10 @@ const styles = {
     fontSize: "15px",
     transition: "all 0.2s ease",
     outline: "none",
+    boxSizing: "border-box",
   },
   textarea: {
-    padding: "12px 15px",
+    padding: "12px 16px",
     border: "2px solid #e5e7eb",
     borderRadius: "8px",
     fontSize: "15px",
@@ -536,6 +634,7 @@ const styles = {
     resize: "vertical",
     transition: "all 0.2s ease",
     outline: "none",
+    boxSizing: "border-box",
   },
   select: {
     padding: "12px 16px",
@@ -546,6 +645,12 @@ const styles = {
     cursor: "pointer",
     transition: "all 0.2s ease",
     outline: "none",
+    boxSizing: "border-box",
+  },
+  hint: {
+    fontSize: "13px",
+    color: "#6b7280",
+    marginTop: "4px",
   },
   actions: {
     display: "flex",

@@ -270,4 +270,47 @@ export class AuthController {
       });
     }
   }
+
+
+  static async uploadProfilePhoto(req: Request, res: Response) {
+    try {
+      const userId = AuthController.getUserId(req);
+
+      if (!userId) {
+        return res.status(401).json({ success: false, error: "Unauthorized" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          error: "No file uploaded"
+        });
+      }
+
+      console.log('✅ Uploading profile photo:', req.file.filename);
+
+      // Save the photo URL to user profile
+      const photoUrl = `/uploads/profiles/${req.file.filename}`;
+
+      const result = await AuthService.updateProfile(userId, {
+        profilePicture: photoUrl
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Profile photo uploaded successfully",
+        data: {
+          url: photoUrl,
+          user: result.data.user
+        }
+      });
+    } catch (error: any) {
+      console.error('❌ Upload photo error:', error.message);
+      return res.status(400).json({
+        success: false,
+        error: error?.message || "Upload failed"
+      });
+    }
+  }
+
 }

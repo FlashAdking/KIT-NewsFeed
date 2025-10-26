@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import LoginModal from "./LoginModal";
 import "../src/css/EventPage.css";
 import FilterModal from "./FilterPage";
@@ -24,6 +24,7 @@ function EventsPage() {
     location: "all",
     eventMode: "all",
   });
+  const location = useLocation();
   const [activeFiltersCount, setActiveFiltersCount] = useState(0);
   const [registeringId, setRegisteringId] = useState(null);
   const [registerLoading, setRegisterLoading] = useState(false);
@@ -98,38 +99,45 @@ function EventsPage() {
   const fetchEvents = async () => {
     try {
       const response = await fetch(
-        `${API_BASE}/api/posts?postType=event&status=published`,
-        {
-          headers: { "Content-Type": "application/json" },
-        }
+        `${API_BASE}/api/posts?status=published`
       );
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('❌ API Error:', errorData);
-        throw new Error(`API error: ${response.status} - ${errorData.message || 'Unknown error'}`);
+        throw new Error(`API error: ${response.status}`);
       }
 
       const result = await response.json();
       console.log('📦 API Response:', result);
 
-      // ✅ Handle different response structures
       if (result.success && result.data) {
-        // Handle paginated response
         const events = result.data.posts || [];
-        const today = new Date().toISOString().split("T")[0];
+
+        // ✅ FIX: Get today's date properly
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        console.log('📅 Today:', today);
 
         const todayEvents = events.filter((event) => {
-          const eventDate = event.eventDetails?.eventDate?.split("T")[0];
-          return eventDate === today;
+          if (!event.eventDetails?.eventDate) return false;
+
+          const eventDate = new Date(event.eventDetails.eventDate);
+          const eventDay = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+
+          const isToday = eventDay.getTime() === today.getTime();
+
+          console.log('Event:', event.title, 'Date:', eventDay, 'Is today?', isToday);
+
+          return isToday;
         });
 
         const upcomingEventsData = events.filter((event) => {
           if (!event.eventDetails?.eventDate) return false;
+
           const eventDate = new Date(event.eventDetails.eventDate);
-          const now = new Date();
-          now.setHours(0, 0, 0, 0);
-          return eventDate > now;
+          const eventDay = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+
+          return eventDay > today;
         });
 
         setTodaysEvents(todayEvents);
@@ -258,22 +266,36 @@ function EventsPage() {
     navigate("/login");
   };
 
+  // ✅ UPDATED: Check login for both internal and external registration
   const handleRegisterClick = (event, e) => {
     e.stopPropagation();
+
+    // Check if user is logged in
     if (!isLoggedIn) {
       showInfo("Please login first to register for this event");
       navigate("/login", {
         state: {
           from: "/",
           pendingRegistration: event._id,
-          eventTitle: event.title
+          eventTitle: event.title,
+          registrationLink: event.registrationLink // ✅ Pass registration link
         }
       });
       return;
     }
-    performRegistration(event._id);
+
+    // User is logged in
+    if (event.registrationLink) {
+      // External registration - open link in new tab
+      window.open(event.registrationLink, '_blank', 'noopener,noreferrer');
+      showSuccess("Registration link opened. Complete your registration there!");
+    } else {
+      // Internal registration via API
+      performRegistration(event._id);
+    }
   };
 
+  // Internal registration function (keep as is)
   const performRegistration = async (eventId) => {
     try {
       const token = localStorage.getItem("token");
@@ -282,6 +304,7 @@ function EventsPage() {
         navigate("/login");
         return;
       }
+
       setRegisteringId(eventId);
       setRegisterLoading(true);
 
@@ -303,17 +326,16 @@ function EventsPage() {
         showInfo("Session expired. Please login again");
         navigate("/login");
       } else {
-        const errText = await resp.text().catch(() => "");
-        showError(`Registration failed: ${errText || "Please try again"}`);
+        const errData = await resp.json().catch(() => ({}));
+        showError(errData.message || "Registration failed. Please try again");
       }
-    } catch {
+    } catch (error) {
       showError("Network error. Please check your connection");
     } finally {
       setRegisterLoading(false);
       setRegisteringId(null);
     }
   };
-
   const handleViewEvent = (event, e) => {
     e.stopPropagation();
     navigate(`/event/${event._id}`, { state: { event } });
@@ -327,20 +349,31 @@ function EventsPage() {
     window.open(hackathon.registrationLink || hackathon.externalUrl, '_blank', 'noopener,noreferrer');
   };
 
+  // In your login success handler
   const handleLoginSuccess = (userData, token) => {
     localStorage.setItem("token", token);
     localStorage.setItem("userData", JSON.stringify(userData));
     setIsLoggedIn(true);
     setUserProfile(userData);
     setShowLoginModal(false);
-    if (loginAction === "register" && selectedEvent) {
-      performRegistration(selectedEvent._id);
+
+    // Check if there was a pending registration
+    const state = location.state;
+    if (state?.registrationLink) {
+      // External registration - open link
+      window.open(state.registrationLink, '_blank', 'noopener,noreferrer');
+      showSuccess("Registration link opened. Complete your registration!");
+    } else if (state?.pendingRegistration) {
+      // Internal registration
+      performRegistration(state.pendingRegistration);
     } else if (loginAction === "profile") {
       navigate("/profile");
     }
+
     setLoginAction("");
     setSelectedEvent(null);
   };
+
 
   const getEventTypeColor = (title, content) => {
     const text = (title + " " + content).toLowerCase();
@@ -369,41 +402,45 @@ function EventsPage() {
 
 
 
-  // ✅ Dedicated filter function for external hackathons
   const filterExternalHackathons = (hackathons) => {
+    if (!hackathons || !Array.isArray(hackathons)) return [];
+
     return hackathons.filter((hackathon) => {
-      // 1. Search filter - checks title, content, tags, and source
+      if (!hackathon || !hackathon.title) return false;
+
+      // 1. Search filter - ✅ Use correct field names
       const matchesSearch = (() => {
         if (!searchTerm) return true;
         const searchLower = searchTerm.toLowerCase();
 
         return (
-          hackathon.title.toLowerCase().includes(searchLower) ||
-          hackathon.content.toLowerCase().includes(searchLower) ||
-          hackathon.source.toLowerCase().includes(searchLower) ||
-          (hackathon.tags && hackathon.tags.some(tag => tag.toLowerCase().includes(searchLower))) ||
-          (hackathon.eventDetails?.venue || "").toLowerCase().includes(searchLower)
+          (hackathon.title || "").toLowerCase().includes(searchLower) ||
+          (hackathon.description || "").toLowerCase().includes(searchLower) || // ✅ Changed from content
+          (hackathon.source || "").toLowerCase().includes(searchLower) ||
+          (hackathon.location || "").toLowerCase().includes(searchLower) || // ✅ Changed from eventDetails.venue
+          (hackathon.tags && Array.isArray(hackathon.tags) &&
+            hackathon.tags.some(tag => tag && typeof tag === 'string' && tag.toLowerCase().includes(searchLower))
+          )
         );
       })();
 
-      // 2. Price filter - External events are always free to register (redirects)
+      // 2. Price filter
       const matchesPrice = (() => {
         if (filters.priceRange === "all") return true;
-        // External events don't charge on our platform, they redirect
         if (filters.priceRange === "free") return true;
-        if (filters.priceRange === "paid") return false; // External events aren't "paid" on our platform
+        if (filters.priceRange === "paid") return false;
         return true;
       })();
 
-      // 3. Category filter - uses tags and content keywords
+      // 3. Category filter - ✅ Use correct field names
       const matchesCategory = (() => {
         if (filters.parentCategory === "all") return true;
 
         const text = (
-          hackathon.title + " " +
-          hackathon.content + " " +
-          (hackathon.tags ? hackathon.tags.join(" ") : "") +
-          " " + hackathon.source
+          (hackathon.title || "") + " " +
+          (hackathon.description || "") + " " + // ✅ Changed from content
+          (hackathon.tags && Array.isArray(hackathon.tags) ? hackathon.tags.join(" ") : "") +
+          " " + (hackathon.source || "")
         ).toLowerCase();
 
         const categoryKeywords = {
@@ -431,14 +468,14 @@ function EventsPage() {
         return keywords.some(keyword => text.includes(keyword));
       })();
 
-      // 4. Subcategory filter - uses tags array
+      // 4. Subcategory filter - ✅ Use correct field names
       const matchesSubcategory = (() => {
         if (!filters.subcategories || filters.subcategories.length === 0) return true;
 
         const text = (
-          hackathon.title + " " +
-          hackathon.content + " " +
-          (hackathon.tags ? hackathon.tags.join(" ") : "")
+          (hackathon.title || "") + " " +
+          (hackathon.description || "") + " " + // ✅ Changed from content
+          (hackathon.tags && Array.isArray(hackathon.tags) ? hackathon.tags.join(" ") : "")
         ).toLowerCase();
 
         return filters.subcategories.some(subcat => {
@@ -447,41 +484,33 @@ function EventsPage() {
         });
       })();
 
-      // 5. Location filter - checks venue field
+      // 5. Location filter - ✅ Use correct field names
       const matchesLocation = (() => {
         if (filters.location === "all") return true;
-        const venue = (hackathon.eventDetails?.venue || "").toLowerCase();
+        const location = (hackathon.location || "").toLowerCase(); // ✅ Changed from eventDetails.venue
         const locationFilter = filters.location.toLowerCase();
-
-        return venue.includes(locationFilter);
+        return location.includes(locationFilter);
       })();
 
-      // 6. Event mode filter - online/offline/hybrid
+      // 6. Event mode filter - ✅ Use correct field names
       const matchesEventMode = (() => {
         if (filters.eventMode === "all") return true;
-        const venue = (hackathon.eventDetails?.venue || "").toLowerCase();
+        const location = (hackathon.location || "").toLowerCase(); // ✅ Changed from eventDetails.venue
 
-        const isOnline = venue.includes("online") ||
-          venue.includes("virtual") ||
-          venue.includes("remote") ||
-          venue.includes("zoom") ||
-          venue.includes("meet") ||
-          venue.includes("global");
+        const isOnline = location.includes("online") ||
+          location.includes("virtual") ||
+          location.includes("remote") ||
+          location.includes("zoom") ||
+          location.includes("meet") ||
+          location.includes("worldwide");
 
-        const isHybrid = venue.includes("hybrid");
-        const isOffline = !isOnline && !isHybrid && venue.length > 0;
+        const isHybrid = location.includes("hybrid");
+        const isOffline = !isOnline && !isHybrid && location.length > 0;
 
         if (filters.eventMode === "online") return isOnline;
         if (filters.eventMode === "offline") return isOffline;
         if (filters.eventMode === "hybrid") return isHybrid;
 
-        return true;
-      })();
-
-      // 7. Additional filter - by source platform
-      const matchesSource = (() => {
-        // You can add source filtering later if needed
-        // For now, show all sources
         return true;
       })();
 
@@ -491,11 +520,11 @@ function EventsPage() {
         matchesCategory &&
         matchesSubcategory &&
         matchesLocation &&
-        matchesEventMode &&
-        matchesSource
+        matchesEventMode
       );
     });
   };
+
 
 
   return (
@@ -532,44 +561,72 @@ function EventsPage() {
                   >
                     <div className="card-header">
                       <div className="event-badge">
-                        <span className="badge-text">TODAY</span>
+                        <span className="badge-text">{event.postType?.toUpperCase() || 'EVENT'}</span>
                       </div>
+                      {event.priority === 'high' && (
+                        <div className="priority-indicator" style={{ background: "#ff6b6b" }}></div>
+                      )}
                     </div>
+
                     <div className="card-image">
                       <img
-                        src={event.media?.[0]?.url || "https://via.placeholder.com/400x200?text=Event"}
+                        src={
+                          event.imageUrl
+                            ? `${API_BASE}${event.imageUrl}`
+                            : event.media?.[0]?.url
+                            || "https://via.placeholder.com/400x200?text=Event"
+                        }
                         alt={event.title}
+                        onError={(e) => {
+                          e.target.src = "https://via.placeholder.com/400x200?text=Event";
+                        }}
                       />
                     </div>
+
                     <div className="card-content">
                       <h3 className="event-title">{event.title}</h3>
                       <p className="event-description">{event.content}</p>
+
+                      {event.clubId && (
+                        <div className="organizer-badge" style={{ marginBottom: '0.5rem', fontSize: '0.85rem', color: '#666' }}>
+                          🏛️ {event.clubId.clubName || 'College Club'}
+                        </div>
+                      )}
+
                       <div className="event-details">
                         <div className="detail-item">
-                          <span className="detail-label">Location:</span>
+                          <span className="detail-icon">📍</span>
                           <span>{event.eventDetails?.venue || "TBA"}</span>
                         </div>
                         <div className="detail-item">
-                          <span className="detail-label">Time:</span>
-                          <span>{formatTime(event.eventDetails?.eventDate)}</span>
+                          <span className="detail-icon">📅</span>
+                          <span>{formatDate(event.eventDetails?.eventDate)}</span>
                         </div>
+                        {event.eventDetails?.maxParticipants && (
+                          <div className="detail-item">
+                            <span className="detail-icon">👥</span>
+                            <span>{event.eventDetails.maxParticipants} max</span>
+                          </div>
+                        )}
                       </div>
+
                       <div className="card-actions">
                         <button className="view-btn" onClick={(e) => handleViewEvent(event, e)}>
                           View Details
                         </button>
-                        {event.eventDetails?.registrationRequired && (
+                        {(event.registrationLink || event.eventDetails?.registrationRequired) && (
                           <button
                             className="register-btn"
                             onClick={(e) => handleRegisterClick(event, e)}
                             disabled={registerLoading && registeringId === event._id}
                           >
-                            {registerLoading && registeringId === event._id ? "Registering..." : "Register Now"}
+                            {registerLoading && registeringId === event._id ? "Registering..." : "Register Now →"}
                           </button>
                         )}
                       </div>
                     </div>
                   </div>
+
                 ))
               ) : (
                 <div className="no-events">
@@ -597,44 +654,72 @@ function EventsPage() {
                   >
                     <div className="card-header">
                       <div className="event-badge">
-                        <span className="badge-text">UPCOMING</span>
+                        <span className="badge-text">{event.postType?.toUpperCase() || 'UPCOMING'}</span>
                       </div>
+                      {event.priority === 'high' && (
+                        <div className="priority-indicator" style={{ background: "#ff6b6b" }}></div>
+                      )}
                     </div>
+
                     <div className="card-image">
                       <img
-                        src={event.media?.[0]?.url || "https://via.placeholder.com/400x200?text=Event"}
+                        src={
+                          event.imageUrl
+                            ? `${API_BASE}${event.imageUrl}`
+                            : event.media?.[0]?.url
+                            || "https://via.placeholder.com/400x200?text=Event"
+                        }
                         alt={event.title}
+                        onError={(e) => {
+                          e.target.src = "https://via.placeholder.com/400x200?text=Event";
+                        }}
                       />
                     </div>
+
                     <div className="card-content">
                       <h3 className="event-title">{event.title}</h3>
                       <p className="event-description">{event.content}</p>
+
+                      {/* {event.clubId && (
+                        <div className="organizer-badge" style={{ marginBottom: '0.5rem', fontSize: '0.85rem', color: '#666' }}>
+                          🏛️ {event.clubId.clubName || 'College Club'}
+                        </div>
+                      )} */}
+
                       <div className="event-details">
                         <div className="detail-item">
-                          <span className="detail-label">Location:</span>
+                          <span className="detail-icon">📍</span>
                           <span>{event.eventDetails?.venue || "TBA"}</span>
                         </div>
                         <div className="detail-item">
-                          <span className="detail-label">Date:</span>
+                          <span className="detail-icon">📅</span>
                           <span>{formatDate(event.eventDetails?.eventDate)}</span>
                         </div>
+                        {event.eventDetails?.maxParticipants && (
+                          <div className="detail-item">
+                            <span className="detail-icon">👥</span>
+                            <span>{event.eventDetails.maxParticipants} max</span>
+                          </div>
+                        )}
                       </div>
+
                       <div className="card-actions">
                         <button className="view-btn" onClick={(e) => handleViewEvent(event, e)}>
                           View Details
                         </button>
-                        {event.eventDetails?.registrationRequired && (
+                        {(event.registrationLink || event.eventDetails?.registrationRequired) && (
                           <button
                             className="register-btn"
                             onClick={(e) => handleRegisterClick(event, e)}
                             disabled={registerLoading && registeringId === event._id}
                           >
-                            {registerLoading && registeringId === event._id ? "Registering..." : "Register Now"}
+                            {registerLoading && registeringId === event._id ? "Registering..." : "Register Now →"}
                           </button>
                         )}
                       </div>
                     </div>
                   </div>
+
                 ))
               ) : (
                 <div className="no-events">
@@ -686,60 +771,73 @@ function EventsPage() {
                 {filterExternalHackathons(externalHackathons).length > 0 ? (
                   filterExternalHackathons(externalHackathons).map((hackathon, idx) => (
                     <div
-                      key={`external-${idx}`}
-                      className="event-card"
+                      key={`external-${hackathon.id || idx}`}
+                      className="event-card modern-card"
                       style={{ "--accent-color": "#667eea" }}
-                      onClick={() => handleExternalHackathonClick(hackathon)}
+                      onClick={() => window.open(hackathon.url, '_blank', 'noopener,noreferrer')}
                     >
                       <div className="card-header">
                         <div className="event-badge">
-                          <span>{hackathon.source}</span>
+                          <span className="badge-text">{hackathon.source}</span>
                         </div>
                         <div className="priority-indicator" style={{ background: "#667eea" }}></div>
                       </div>
 
                       <div className="card-image">
                         <img
-                          src={
-                            hackathon.media?.[0]?.url ||
-                            `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                              hackathon.title
-                            )}&size=400&background=667eea&color=fff&bold=true`
-                          }
+                          src={`https://ui-avatars.com/api/?name=${encodeURIComponent(
+                            hackathon.title
+                          )}&size=400&background=667eea&color=fff&bold=true`}
                           alt={hackathon.title}
                           onError={(e) => {
-                            e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                              hackathon.title
-                            )}&size=400&background=667eea&color=fff&bold=true`;
+                            e.target.src = "https://via.placeholder.com/400x200?text=Hackathon";
                           }}
                         />
                       </div>
 
                       <div className="card-content">
                         <h3 className="event-title">{hackathon.title}</h3>
-                        <p className="event-description">{hackathon.content}</p>
+                        <p className="event-description">{hackathon.description}</p>
 
                         <div className="event-details">
-                          {hackathon.eventDetails?.venue && (
+                          {hackathon.location && (
                             <div className="detail-item">
                               <span className="detail-icon">📍</span>
-                              <span>{hackathon.eventDetails.venue}</span>
+                              <span>{hackathon.location}</span>
                             </div>
                           )}
-                          {hackathon.eventDetails?.eventDate && (
+                          {hackathon.date && (
                             <div className="detail-item">
                               <span className="detail-icon">📅</span>
-                              <span>{formatDate(hackathon.eventDetails.eventDate)}</span>
+                              <span>{hackathon.date}</span>
+                            </div>
+                          )}
+                          {hackathon.prize && (
+                            <div className="detail-item">
+                              <span className="detail-icon">🏆</span>
+                              <span>{hackathon.prize}</span>
                             </div>
                           )}
                         </div>
 
-                        <div className="card-footer">
-                          <span className="fee-tag">External Event</span>
-                          <span className="organizer-badge" style={{ background: "#667eea" }}>
-                            {hackathon.source}
-                          </span>
-                        </div>
+                        {hackathon.tags && hackathon.tags.length > 0 && (
+                          <div className="event-tags" style={{ marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            {hackathon.tags.slice(0, 3).map((tag, tagIdx) => (
+                              <span
+                                key={tagIdx}
+                                style={{
+                                  padding: '0.25rem 0.5rem',
+                                  background: '#f0f0f0',
+                                  borderRadius: '4px',
+                                  fontSize: '0.75rem',
+                                  color: '#666'
+                                }}
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
 
                         <div className="card-actions">
                           <button
@@ -750,7 +848,7 @@ function EventsPage() {
                             }}
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleExternalHackathonClick(hackathon);
+                              window.open(hackathon.url, '_blank', 'noopener,noreferrer');
                             }}
                           >
                             Visit {hackathon.source} →
@@ -773,6 +871,7 @@ function EventsPage() {
               </div>
             )}
           </section>
+
 
 
         </div>

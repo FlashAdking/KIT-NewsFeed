@@ -8,19 +8,19 @@ import { Post } from '../models/Post';
 import { EventRegistration } from '../models/EventRegistration';
 
 export class PostController {
-  
+
   // ========================================================================
   // HELPER: Extract user ID from JWT token
   // ========================================================================
   private static getUserId(req: Request): string {
-    const userId = (req.user as any)?.userId?.toString() 
-                || (req.user as any)?._id?.toString() 
-                || (req.user as any)?.sub?.toString();
-    
+    const userId = (req.user as any)?.userId?.toString()
+      || (req.user as any)?._id?.toString()
+      || (req.user as any)?.sub?.toString();
+
     if (!userId) {
       throw new Error('User ID not found in token');
     }
-    
+
     return userId;
   }
 
@@ -199,7 +199,7 @@ export class PostController {
   static async getMyPosts(req: Request, res: Response) {
     try {
       console.log('📝 getMyPosts called');
-      
+
       const userId = PostController.getUserId(req);
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
@@ -250,7 +250,7 @@ export class PostController {
     try {
       const { id } = req.params;
       const userId = req.user ? PostController.getUserId(req) : undefined;
-      
+
       await PostService.getPostById(id, userId);
 
       res.status(200).json({
@@ -299,9 +299,15 @@ export class PostController {
       const { action, notes } = req.body;
       const adminId = PostController.getUserId(req);
 
-      console.log('✅ Moderating post:', { adminId, postId: id, action });
+      console.log('✅ [moderatePost] Starting:', {
+        adminId,
+        postId: id,
+        action,
+        user: req.user
+      });
 
       if (!['approve', 'reject'].includes(action)) {
+        console.log('❌ [moderatePost] Invalid action:', action);
         return res.status(400).json({
           success: false,
           message: 'Action must be "approve" or "reject"',
@@ -315,12 +321,15 @@ export class PostController {
         moderationNotes: notes || ''
       };
 
-      // ✅ Set publishedAt when approving
       if (action === 'approve') {
         updateData.publishedAt = new Date();
       }
 
+      console.log('✅ [moderatePost] Update data:', updateData);
+
       const result = await PostService.updatePost(id, adminId, updateData);
+
+      console.log('✅ [moderatePost] Success:', result);
 
       res.status(200).json({
         success: true,
@@ -328,13 +337,15 @@ export class PostController {
         data: result,
       });
     } catch (error: any) {
-      console.error('❌ Moderate post error:', error.message);
+      console.error('❌ [moderatePost] Error:', error.message);
+      console.error('❌ [moderatePost] Stack:', error.stack);
       res.status(400).json({
         success: false,
         message: error.message,
       });
     }
   }
+
 
   // ========================================================================
   // EVENT: GET STATS
@@ -348,16 +359,16 @@ export class PostController {
         .lean();
 
       if (!post) {
-        return res.status(404).json({ 
-          success: false, 
-          message: 'Post not found' 
+        return res.status(404).json({
+          success: false,
+          message: 'Post not found'
         });
       }
 
       if (post.postType !== 'event') {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Stats available only for events' 
+        return res.status(400).json({
+          success: false,
+          message: 'Stats available only for events'
         });
       }
 
@@ -383,9 +394,9 @@ export class PostController {
       });
     } catch (err) {
       console.error('[GET EVENT STATS] Error:', err);
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to load stats' 
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to load stats'
       });
     }
   }

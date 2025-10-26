@@ -11,20 +11,14 @@ import postRoutes from './routes/postRoutes';
 import clubRepresentativeRoutes from './routes/clubRepresentativeRoutes';
 import path from 'path';
 
-// ============================================================================
-// ENVIRONMENT & DATABASE SETUP
-// ============================================================================
 dotenv.config();
 connectDB();
 
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
 
-// ============================================================================
-// 1. CORS CONFIGURATION (MUST BE FIRST)
-// ============================================================================
-// Order matters: CORS must come before other middleware that might send responses
-// Reference: https://expressjs.com/en/guide/using-middleware.html
+
+
 const corsOptions = {
   origin: [
     'http://localhost:3000',
@@ -43,9 +37,7 @@ app.use(cors(corsOptions));
 // Handle preflight requests explicitly
 app.options('*', cors(corsOptions));
 
-// ============================================================================
-// 2. SECURITY HEADERS (HELMET)
-// ============================================================================
+
 // Configure Helmet AFTER CORS to avoid conflicts
 // Reference: https://helmetjs.github.io/
 app.use(
@@ -72,22 +64,15 @@ app.use(
   })
 );
 
-// ============================================================================
-// 3. LOGGING
-// ============================================================================
+
 // Morgan logs HTTP requests - use 'combined' in production, 'dev' in development
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// ============================================================================
-// 4. BODY PARSING
-// ============================================================================
+
 // Parse JSON and URL-encoded bodies - must come before routes
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ============================================================================
-// 5. STATIC FILES WITH CORS HEADERS
-// ============================================================================
 // CRITICAL: Add CORS middleware BEFORE express.static
 // This fixes the ERR_BLOCKED_BY_RESPONSE.NotSameOrigin error
 app.use('/uploads', (req: Request, res: Response, next: NextFunction) => {
@@ -140,9 +125,7 @@ app.use(
   })
 );
 
-// ============================================================================
-// 6. REQUEST LOGGING (for debugging)
-// ============================================================================
+
 if (process.env.NODE_ENV !== 'production') {
   app.use((req: Request, res: Response, next: NextFunction) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
@@ -150,9 +133,7 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-// ============================================================================
-// 7. HEALTH CHECK (before API routes)
-// ============================================================================
+
 app.get('/health', (req: Request, res: Response) => {
   const dbStatus = mongoose.connection.readyState;
   const dbStatusMap: Record<number, string> = {
@@ -171,9 +152,7 @@ app.get('/health', (req: Request, res: Response) => {
   });
 });
 
-// ============================================================================
-// 8. ROOT ENDPOINT
-// ============================================================================
+
 app.get('/', (req: Request, res: Response) => {
   res.json({
     message: 'College NewsFeed API is running!',
@@ -191,18 +170,14 @@ app.get('/', (req: Request, res: Response) => {
   });
 });
 
-// ============================================================================
-// 9. API ROUTES
-// ============================================================================
+
 // Order: Most specific routes first
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/posts', postRoutes);
 app.use('/api/club-representative', clubRepresentativeRoutes);
 
-// ============================================================================
-// 10. 404 HANDLER (after all valid routes)
-// ============================================================================
+
 app.use('*', (req: Request, res: Response) => {
   console.error(`[404] Route not found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({
@@ -213,11 +188,8 @@ app.use('*', (req: Request, res: Response) => {
   });
 });
 
-// ============================================================================
-// 11. ERROR HANDLER (MUST BE LAST)
-// ============================================================================
-// Express error handlers must have 4 parameters: (err, req, res, next)
-// Reference: https://expressjs.com/en/guide/error-handling.html
+
+
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error('[ERROR]', {
     message: err.message,
@@ -243,9 +215,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   res.status(500).json(errorResponse);
 });
 
-// ============================================================================
-// 12. GRACEFUL SHUTDOWN HANDLERS
-// ============================================================================
+
 const gracefulShutdown = async (signal: string) => {
   console.log(`\n🛑 ${signal} received, shutting down gracefully...`);
   
@@ -282,9 +252,7 @@ process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
   process.exit(1);
 });
 
-// ============================================================================
-// 13. START SERVER
-// ============================================================================
+
 const server = app.listen(PORT, () => {
   console.log('='.repeat(70));
   console.log(`🚀 Server is running on port ${PORT}`);

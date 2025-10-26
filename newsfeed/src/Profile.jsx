@@ -198,57 +198,28 @@ function Profile() {
 
       if (response.ok) {
         const result = await response.json();
-        setUser(prev => ({ ...prev, avatar: result.data.url }));
+        console.log('✅ Upload result:', result);
+
+        // ✅ FIX: Update profilePicture, not avatar
+        setUser(prev => ({
+          ...prev,
+          profilePicture: result.data.url // ✅ Changed from 'avatar'
+        }));
+
         showSuccess('Profile photo updated!');
       } else {
-        showError('Failed to upload photo');
+        const error = await response.json();
+        showError(error.error || 'Failed to upload photo');
       }
     } catch (error) {
+      console.error('Upload error:', error);
       showError('Network error during upload');
     } finally {
       setUploadingPhoto(false);
     }
   };
 
-  const handleResumeUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
 
-    if (file.type !== 'application/pdf') {
-      showError('Please upload a PDF file');
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      showError('Resume size must be less than 10MB');
-      return;
-    }
-
-    setUploadingResume(true);
-    const formData = new FormData();
-    formData.append('resume', file);
-
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE}/api/auth/upload-resume`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData,
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        setUser(prev => ({ ...prev, resumeUrl: result.data.url }));
-        showSuccess('Resume uploaded successfully!');
-      } else {
-        showError('Failed to upload resume');
-      }
-    } catch (error) {
-      showError('Network error during upload');
-    } finally {
-      setUploadingResume(false);
-    }
-  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -420,10 +391,17 @@ function Profile() {
                   {uploadingPhoto ? (
                     <div className="upload-spinner">Uploading...</div>
                   ) : (
+                    // In your profile component
                     <img
-                      src={user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.fullName || 'User')}&size=200&background=4f46e5&color=fff`}
-                      alt={user.fullName}
+                      src={
+                        user.profilePicture
+                          ? `${API_BASE}${user.profilePicture}`
+                          : '/default-avatar.png'
+                      }
+                      alt="Profile"
+                      className="avatar-img"
                     />
+
                   )}
                   <div className="avatar-overlay">
                     <span>Change Photo</span>
@@ -444,7 +422,7 @@ function Profile() {
               <div className="user-info-compact">
                 <h2>{user.fullName}</h2>
                 <p className="user-email">{user.email}</p>
-                <span className="user-role-badge">{user.role || 'Student'}</span>
+                {/* <span className="user-role-badge">{user.role || 'Student'}</span> */}
               </div>
 
               <div className="profile-stats-grid">
@@ -476,12 +454,12 @@ function Profile() {
                     <div className="rep-content active">
                       <div className="rep-club-info">
                         <div className="rep-club-name">
-                          {user.representativeStatus?.currentStatus?.clubId?.clubName || 
-                           user.clubRepresentative?.clubId?.clubName || 'N/A'}
+                          {user.clubRepresentative?.clubId?.clubName ||  // ✅ Changed to clubName
+                            user.clubRepresentative?.ClubName || 'N/A'}
                         </div>
                         <div className="rep-position">
-                          {user.representativeStatus?.currentStatus?.clubPosition || 
-                           user.clubRepresentative?.clubPosition || 'Member'}
+                          {user.representativeStatus?.currentStatus?.clubPosition ||
+                            user.clubRepresentative?.clubPosition || 'Member'}
                         </div>
                       </div>
                       <button
@@ -545,7 +523,7 @@ function Profile() {
                         placeholder="+91 9876543210"
                       />
                     </div>
-                    
+
                     <div className="form-group">
                       <label>Year</label>
                       <select name="year" value={formData.year} onChange={handleInputChange}>
@@ -757,8 +735,21 @@ function Profile() {
                 {getFilteredPosts().map((post) => (
                   <div key={post._id} className="post-management-card">
                     <div className="post-image-container">
-                      {post.media?.[0]?.url ? (
-                        <img src={post.media[0].url} alt={post.title} className="post-thumbnail" />
+                      {/* ✅ Check both imageUrl and media formats */}
+                      {post.imageUrl || post.media?.[0]?.url ? (
+                        <img
+                          src={
+                            post.imageUrl
+                              ? `${API_BASE}${post.imageUrl}`
+                              : post.media[0].url
+                          }
+                          alt={post.title}
+                          className="post-thumbnail"
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.nextSibling.style.display = 'flex';
+                          }}
+                        />
                       ) : (
                         <div className="post-placeholder">No Image</div>
                       )}
@@ -766,6 +757,7 @@ function Profile() {
                         {post.status}
                       </span>
                     </div>
+
 
                     <div className="post-info">
                       <h3 className="post-title">{post.title}</h3>
@@ -819,7 +811,7 @@ function Profile() {
                 <div className="no-posts-icon">📝</div>
                 <h3>No {postFilter !== 'all' ? postFilter : ''} posts</h3>
                 <p>
-                  {postFilter === 'all' 
+                  {postFilter === 'all'
                     ? 'Start creating event posts for your club'
                     : `You don't have any ${postFilter} posts`
                   }

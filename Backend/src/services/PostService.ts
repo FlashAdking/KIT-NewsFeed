@@ -8,94 +8,94 @@ import { IPost } from '../models/interfaces/IPost';
 export class PostService {
 
   // Create new post
-// services/PostService.ts - FIXED createPost
-static async createPost(
-  userId: string,
-  postData: {
-    title: string;
-    content: string;
-    categoryId?: string; // ✅ CHANGED: Make optional
-    postType: 'event' | 'workshop' | 'competition' | 'hackathon' | 'seminar' | 
-              'cultural' | 'sports' | 'recruitment' | 'announcement' | 'notice'; // ✅ UPDATED types
-    priority?: 'low' | 'medium' | 'high';
-    imageUrl?: string; // ✅ ADDED: For image upload
-    eventDetails?: any;
-    registrationLink?: string;
-    scheduledFor?: Date;
-    clubId?: Types.ObjectId; // ✅ ADDED: From middleware
-    authorType?: 'club' | 'faculty' | 'admin'; // ✅ ADDED: From middleware
-  }
-) {
-  try {
-    const user = await User.findById(userId);
-    if (!user) {
-      throw new Error('User not found');
+  // services/PostService.ts - FIXED createPost
+  static async createPost(
+    userId: string,
+    postData: {
+      title: string;
+      content: string;
+      categoryId?: string; // ✅ CHANGED: Make optional
+      postType: 'event' | 'workshop' | 'competition' | 'hackathon' | 'seminar' |
+      'cultural' | 'sports' | 'recruitment' | 'announcement' | 'notice'; // ✅ UPDATED types
+      priority?: 'low' | 'medium' | 'high';
+      imageUrl?: string; // ✅ ADDED: For image upload
+      eventDetails?: any;
+      registrationLink?: string;
+      scheduledFor?: Date;
+      clubId?: Types.ObjectId; // ✅ ADDED: From middleware
+      authorType?: 'club' | 'faculty' | 'admin'; // ✅ ADDED: From middleware
     }
+  ) {
+    try {
+      const user = await User.findById(userId);
+      if (!user) {
+        throw new Error('User not found');
+      }
 
-    // ✅ UPDATED: Use authorType/clubId from middleware if provided
-    let authorType = postData.authorType || 'club';
-    let clubId = postData.clubId;
+      // ✅ UPDATED: Use authorType/clubId from middleware if provided
+      let authorType = postData.authorType || 'club';
+      let clubId = postData.clubId;
 
-    // Fallback: determine from user if not provided by middleware
-    if (!postData.authorType) {
-      if (user.role === 'student') {
-        if (!user.clubRepresentative?.isActive) {
-          throw new Error('Club representative status required to create posts');
+      // Fallback: determine from user if not provided by middleware
+      if (!postData.authorType) {
+        if (user.role === 'student') {
+          if (!user.clubRepresentative?.isActive) {
+            throw new Error('Club representative status required to create posts');
+          }
+          authorType = 'club';
+          clubId = user.clubRepresentative.clubId;
+        } else if (user.role === 'admin') {
+          authorType = 'admin'; // ✅ CHANGED: admin as admin, not faculty
+        } else {
+          throw new Error('Invalid user role for post creation');
         }
-        authorType = 'club';
-        clubId = user.clubRepresentative.clubId;
-      } else if (user.role === 'admin') {
-        authorType = 'admin'; // ✅ CHANGED: admin as admin, not faculty
-      } else {
-        throw new Error('Invalid user role for post creation');
       }
-    }
 
-    // ✅ UPDATED: Only verify category if provided
-    let categoryId: Types.ObjectId | undefined;
-    if (postData.categoryId) {
-      const category = await Category.findById(postData.categoryId);
-      if (!category || !category.isActive) {
-        throw new Error('Invalid or inactive category');
+      // ✅ UPDATED: Only verify category if provided
+      let categoryId: Types.ObjectId | undefined;
+      if (postData.categoryId) {
+        const category = await Category.findById(postData.categoryId);
+        if (!category || !category.isActive) {
+          throw new Error('Invalid or inactive category');
+        }
+        categoryId = new Types.ObjectId(postData.categoryId);
       }
-      categoryId = new Types.ObjectId(postData.categoryId);
+
+      // ✅ UPDATED: Create post with new fields
+      const post = new Post({
+        title: postData.title,
+        content: postData.content,
+        createdBy: new Types.ObjectId(userId),
+        authorType,
+        clubId,
+        categoryId, // ✅ Can be undefined now
+        postType: postData.postType,
+        priority: postData.priority || 'medium',
+        imageUrl: postData.imageUrl, // ✅ ADDED
+        eventDetails: postData.eventDetails,
+        registrationLink: postData.registrationLink,
+        status: 'pending', // All posts start as pending for moderation
+        scheduledFor: postData.scheduledFor,
+      });
+
+      await post.save();
+
+      // Populate the post with related data
+      const populatedPost = await Post.findById(post._id)
+        .populate('createdBy', 'fullName email username')
+        .populate('clubId', 'clubName clubtype')
+        .populate('categoryId', 'name slug');
+
+      console.log(`📝 Post created: "${post.title}" by ${user.fullName} (${authorType})`);
+
+      return {
+        message: 'Post created successfully and submitted for moderation',
+        post: populatedPost
+      };
+    } catch (error: any) {
+      throw new Error(error.message || 'Failed to create post');
     }
-
-    // ✅ UPDATED: Create post with new fields
-    const post = new Post({
-      title: postData.title,
-      content: postData.content,
-      createdBy: new Types.ObjectId(userId),
-      authorType,
-      clubId,
-      categoryId, // ✅ Can be undefined now
-      postType: postData.postType,
-      priority: postData.priority || 'medium',
-      imageUrl: postData.imageUrl, // ✅ ADDED
-      eventDetails: postData.eventDetails,
-      registrationLink: postData.registrationLink,
-      status: 'pending', // All posts start as pending for moderation
-      scheduledFor: postData.scheduledFor,
-    });
-
-    await post.save();
-
-    // Populate the post with related data
-    const populatedPost = await Post.findById(post._id)
-      .populate('createdBy', 'fullName email username')
-      .populate('clubId', 'clubName clubtype')
-      .populate('categoryId', 'name slug');
-
-    console.log(`📝 Post created: "${post.title}" by ${user.fullName} (${authorType})`);
-
-    return {
-      message: 'Post created successfully and submitted for moderation',
-      post: populatedPost
-    };
-  } catch (error: any) {
-    throw new Error(error.message || 'Failed to create post');
   }
-}
 
 
   // Get all posts with filters
@@ -203,43 +203,67 @@ static async createPost(
     updateData: Partial<IPost>
   ) {
     try {
+      console.log('✅ [updatePost] Starting:', { postId, userId, updateData });
+
       const post = await Post.findById(postId);
       if (!post) {
+        console.log('❌ [updatePost] Post not found:', postId);
         throw new Error('Post not found');
       }
 
+      console.log('✅ [updatePost] Post found:', post._id);
+
       const user = await User.findById(userId);
       if (!user) {
+        console.log('❌ [updatePost] User not found:', userId);
         throw new Error('User not found');
       }
 
-      // ✅ FIXED: Check permissions with optional chaining
+      console.log('✅ [updatePost] User found:', {
+        userId: user._id,
+        role: user.role,
+        clubRep: user.clubRepresentative?.isActive
+      });
+
+      // Check permissions
       if (user.role === 'student' && user.clubRepresentative?.isActive) {
         const userClubId = user.clubRepresentative?.clubId?.toString();
         const postClubId = post.clubId?.toString();
-        
+
+        console.log('🔐 [updatePost] Club rep check:', { userClubId, postClubId });
+
         if (!userClubId || postClubId !== userClubId) {
+          console.log('❌ [updatePost] Club mismatch');
           throw new Error('Can only edit your club\'s posts');
         }
       } else if (user.role !== 'admin') {
+        console.log('❌ [updatePost] Not admin or club rep:', user.role);
         throw new Error('Insufficient permissions');
       }
+
+      console.log('✅ [updatePost] Permission check passed');
 
       // Update allowed fields
       const allowedFields = [
         'title', 'content', 'categoryId', 'postType', 'priority',
-        'media', 'eventDetails', 'registrationLink', 'scheduledFor'
+        'media', 'eventDetails', 'registrationLink', 'scheduledFor',
+        'status', 'moderatedBy', 'moderationNotes', 'publishedAt' // ✅ Moderation fields
       ];
 
       const filteredData: any = {};
       Object.keys(updateData).forEach(key => {
         if (allowedFields.includes(key)) {
           filteredData[key] = updateData[key as keyof IPost];
+        } else {
+          console.log('⚠️ [updatePost] Field not allowed:', key);
         }
       });
 
-      // Reset to pending if content changed
-      if (updateData.title || updateData.content) {
+      console.log('✅ [updatePost] Filtered data:', filteredData);
+
+      // Only reset to pending if NOT a moderation action
+      if ((updateData.title || updateData.content) && !updateData.status) {
+        console.log('⚠️ [updatePost] Resetting to pending');
         filteredData.status = 'pending';
       }
 
@@ -252,16 +276,18 @@ static async createPost(
         .populate('clubId', 'clubName clubtype')
         .populate('categoryId', 'name slug');
 
-      console.log(`✏️ Post updated: "${updatedPost?.title}" by ${user.fullName}`);
+      console.log('✅ [updatePost] Post updated:', updatedPost?._id);
 
       return {
         message: 'Post updated successfully',
         post: updatedPost
       };
     } catch (error: any) {
+      console.error('❌ [updatePost] Error:', error.message);
       throw new Error(error.message || 'Failed to update post');
     }
   }
+
 
   // ✅ FIXED: Delete post
   static async deletePost(postId: string, userId: string) {
@@ -280,7 +306,7 @@ static async createPost(
       if (user.role === 'student' && user.clubRepresentative?.isActive) {
         const userClubId = user.clubRepresentative?.clubId?.toString();
         const postClubId = post.clubId?.toString();
-        
+
         if (!userClubId || postClubId !== userClubId) {
           throw new Error('Can only delete your club\'s posts');
         }

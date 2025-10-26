@@ -212,10 +212,26 @@ export default function EventDetails() {
     );
   }
 
-  const images = event.media?.filter(m => m.type === 'image') || [];
+  // ✅ ADD THIS - Handles both image formats
+  const getImages = () => {
+    if (event.imageUrl) {
+      // New format: single imageUrl
+      return [{ url: `${API_BASE}${event.imageUrl}`, type: 'image' }];
+    }
+
+    if (event.media) {
+      // Old format: media array
+      return event.media.filter(m => m.type === 'image') || [];
+    }
+
+    return [];
+  };
+
+  const images = getImages();
   const documents = event.media?.filter(m => m.type === 'document') || [];
   const mainImage = images[selectedImage]?.url || "https://via.placeholder.com/800x400?text=Event";
   const hasExternalLink = !!event.registrationLink;
+
 
   const isEventPast = event.eventDetails?.eventDate
     ? new Date(event.eventDetails.eventDate) < new Date()
@@ -347,7 +363,7 @@ export default function EventDetails() {
             </div>
 
             {/* Registration Section */}
-            {event.eventDetails?.registrationRequired && !isEventPast && (
+            {(event.eventDetails?.registrationRequired || event.registrationLink) && !isEventPast && (
               <div className="registration-section">
                 {!isRegistrationOpen ? (
                   <div className="registration-closed">
@@ -372,11 +388,9 @@ export default function EventDetails() {
                     >
                       {registering
                         ? "Processing..."
-                        : hasExternalLink
-                          ? "Register on Organizer's Site →"
-                          : isLoggedIn
-                            ? "Register Now"
-                            : "Login to Register"}
+                        : isLoggedIn
+                          ? "Register Now"
+                          : "Login to Register"}
                     </button>
 
                     {spotsRemaining !== null && spotsRemaining <= 10 && (
@@ -385,12 +399,12 @@ export default function EventDetails() {
                       </p>
                     )}
 
-                    {hasExternalLink && (
+                    {/* {hasExternalLink && (
                       <p className="external-link-note">
                         <span className="info-icon">ℹ️</span>
                         Registration handled by organizer
                       </p>
-                    )}
+                    )} */}
 
                     {!isLoggedIn && (
                       <p className="login-prompt-text">
