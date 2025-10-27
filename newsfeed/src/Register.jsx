@@ -347,7 +347,7 @@ function Register() {
                 <div style={styles.dividerLine}></div>
               </div>
 
-              <button
+              {/* <button
                 style={styles.googleButton}
                 type="button"
                 disabled={loading}
@@ -359,7 +359,7 @@ function Register() {
                   alt="google login"
                 />
                 <span>Continue with Google</span>
-              </button>
+              </button> */}
 
               <div style={styles.loginLink}>
                 Already have an account?{" "}

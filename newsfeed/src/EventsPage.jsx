@@ -587,11 +587,11 @@ function EventsPage() {
                       <h3 className="event-title">{event.title}</h3>
                       <p className="event-description">{event.content}</p>
 
-                      {event.clubId && (
+                      {/* {event.clubId && (
                         <div className="organizer-badge" style={{ marginBottom: '0.5rem', fontSize: '0.85rem', color: '#666' }}>
                           🏛️ {event.clubId.clubName || 'College Club'}
                         </div>
-                      )}
+                      )} */}
 
                       <div className="event-details">
                         <div className="detail-item">

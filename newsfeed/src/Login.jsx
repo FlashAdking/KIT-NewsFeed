@@ -40,12 +40,20 @@ function Login() {
 
         // ✅ Smart redirect based on role
         if (user.role === "admin") {
-          // Admin users go to dashboard
-          setTimeout(() => {
-            navigate("/admin");
-          }, 1000);
+          // Only super admin goes to dashboard
+          if (user.adminProfile?.adminLevel === 'super') {
+            setTimeout(() => {
+              navigate("/admin");
+            }, 1000);
+          } else {
+            // Post moderators go to events page
+            setTimeout(() => {
+              navigate("/");
+            }, 1000);
+          }
           return;
         }
+
 
         // For students/regular users
         const { pendingRegistration, from, eventTitle } = location.state || {};
@@ -191,18 +199,18 @@ function Login() {
             </form>
 
             {/* ✅ Admin Login Notice */}
-            <div style={styles.adminNotice}>
+            {/* <div style={styles.adminNotice}>
               <span style={styles.adminIcon}>⚙️</span>
               <span style={styles.adminText}>
                 Admins will be redirected to dashboard
               </span>
-            </div>
+            </div> */}
 
             <div style={styles.divider}>
               <span style={styles.dividerText}>Or continue with</span>
             </div>
 
-            <button
+            {/* <button
               style={styles.googleButton}
               type="button"
               onClick={() => showInfo("Google login coming soon!")}
@@ -213,7 +221,7 @@ function Login() {
                 alt="google login"
               />
               <span>Continue with Google</span>
-            </button>
+            </button> */}
 
             <div style={styles.registerLink}>
               New to EventEase?{" "}

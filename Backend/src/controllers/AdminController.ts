@@ -2,19 +2,20 @@ import { Request, Response } from 'express';
 import { AdminService } from '../services/AdminService';
 import { ClubRepresentativeService } from '../services/ClubRepresentativeService';
 import { IUser } from '../models/interfaces/IUser';
+import { User } from '../models/User';
 
 export class AdminController {
 
   // ✅ Helper to extract admin ID from JWT token
   private static getAdminId(req: Request): string {
-    const userId = (req.user as any)?.userId?.toString() 
-                || (req.user as any)?._id?.toString() 
-                || (req.user as any)?.sub?.toString();
-    
+    const userId = (req.user as any)?.userId?.toString()
+      || (req.user as any)?._id?.toString()
+      || (req.user as any)?.sub?.toString();
+
     if (!userId) {
       throw new Error('User ID not found in token');
     }
-    
+
     return userId;
   }
 
@@ -23,7 +24,7 @@ export class AdminController {
     try {
       const adminId = AdminController.getAdminId(req);
       console.log('✅ Getting pending representatives for admin:', adminId);
-      
+
       const result = await AdminService.getPendingRepresentativeRequests(adminId);
 
       res.status(200).json({
@@ -79,9 +80,9 @@ export class AdminController {
     try {
       const adminId = AdminController.getAdminId(req);
       const limit = parseInt(req.query.limit as string) || 50;
-      
+
       console.log('✅ Getting representative history for admin:', adminId);
-      
+
       const result = await AdminService.getRepresentativeHistory(adminId, limit);
 
       res.status(200).json({
@@ -174,21 +175,19 @@ export class AdminController {
   static async promoteToAdmin(req: Request, res: Response): Promise<void> {
     try {
       const promoterId = AdminController.getAdminId(req);
-      const { targetUserId, adminLevel, permissions } = req.body;
+      const { targetUserId } = req.body; // ✅ Only need targetUserId now
 
-      if (!targetUserId || !adminLevel || !permissions) {
+      if (!targetUserId) {
         res.status(400).json({
           success: false,
-          message: 'targetUserId, adminLevel, and permissions are required'
+          message: 'targetUserId is required'
         });
         return;
       }
 
       const result = await AdminService.promoteToAdmin(
         promoterId,
-        targetUserId,
-        adminLevel,
-        permissions
+        targetUserId // ✅ Only pass 2 arguments
       );
 
       res.status(200).json({
@@ -203,6 +202,7 @@ export class AdminController {
       });
     }
   }
+
 
   static async grantPermissions(req: Request, res: Response): Promise<void> {
     try {
@@ -235,4 +235,71 @@ export class AdminController {
       });
     }
   }
+
+
+  // Add this method to your AdminController class
+  static async getAllUsers(req: Request, res: Response): Promise<void> {
+    try {
+      const users = await User.find({
+        role: 'student',
+        isActive: true
+      })
+        .select('_id fullName email collegeName department profilePicture')
+        .sort({ fullName: 1 });
+
+      res.status(200).json({
+        success: true,
+        data: { users }
+      });
+    } catch (error: any) {
+      console.error('❌ getAllUsers error:', error.message);
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+
+  // In AdminController.ts
+  static async getAllAdmins(req: Request, res: Response): Promise<void> {
+    try {
+      const admins = await User.find({
+        role: 'admin'
+      })
+        .select('_id fullName email adminProfile profilePicture createdAt') // ✅ Added profilePicture
+        .sort({ createdAt: -1 });
+
+      res.status(200).json({
+        success: true,
+        data: { admins }
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  // In AdminController.ts
+  static async revokeAdmin(req: Request, res: Response): Promise<void> {
+    try {
+      const promoterId = AdminController.getAdminId(req);
+      const { targetUserId } = req.body;
+
+      const result = await AdminService.revokeAdmin(promoterId, targetUserId);
+
+      res.status(200).json({
+        success: true,
+        data: result
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
 }

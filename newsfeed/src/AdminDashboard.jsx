@@ -15,6 +15,16 @@ function AdminDashboard() {
   const [viewerType, setViewerType] = useState(null);
   const [imageLoadError, setImageLoadError] = useState(false);
 
+  // User promotion state
+  // const [showCreateAdminModal, setShowCreateAdminModal] = useState(false);
+  const [allUsers, setAllUsers] = useState([]);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [searchUser, setSearchUser] = useState('');
+  const [loadingAdmins, setLoadingAdmins] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState(null); // { id, name }
+
+
+
   // Dashboard stats
   const [stats, setStats] = useState({
     pendingRepresentatives: 0,
@@ -36,13 +46,7 @@ function AdminDashboard() {
   // Admins
   const [admins, setAdmins] = useState([]);
   const [showCreateAdminModal, setShowCreateAdminModal] = useState(false);
-  const [newAdminData, setNewAdminData] = useState({
-    email: '',
-    password: '',
-    fullName: '',
-    adminLevel: 'department',
-    permissions: [],
-  });
+
 
   const navigate = useNavigate();
   const { showSuccess, showError, showInfo } = useToast();
@@ -87,6 +91,104 @@ function AdminDashboard() {
     }
   }, [postFilter, adminUser, activeTab]);
 
+  useEffect(() => {
+    if (adminUser && activeTab) {
+      const isSuperAdmin = adminUser.adminProfile?.adminLevel === 'super';
+      const restrictedTabs = ['representatives', 'admins'];
+
+      if (!isSuperAdmin && restrictedTabs.includes(activeTab)) {
+        console.warn(`[Access Denied] Post moderator tried to access: ${activeTab}`);
+        showError('You do not have permission to access this section');
+        setActiveTab('overview');
+      }
+    }
+  }, [activeTab, adminUser]);
+
+  useEffect(() => {
+    if (showCreateAdminModal) {
+      fetchUsers();
+    }
+  }, [showCreateAdminModal]);
+
+
+
+  const fetchAdmins = async () => {
+    setLoadingAdmins(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE}/api/admin/admins`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAdmins(data.data.admins);
+      }
+    } catch (error) {
+      showError('Failed to load admins');
+    } finally {
+      setLoadingAdmins(false);
+    }
+  };
+
+  // Revoke admin
+  const revokeAdmin = async () => {
+    if (!confirmRevoke) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE}/api/admin/revoke`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ targetUserId: confirmRevoke.id })
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        showSuccess(`${confirmRevoke.name}'s admin access revoked successfully`);
+        fetchAdmins();
+      } else {
+        showError(result.message || 'Failed to revoke admin access');
+      }
+    } catch (error) {
+      showError('Network error');
+    } finally {
+      setConfirmRevoke(null); // Close modal
+    }
+  };
+
+
+  // Load on mount
+  useEffect(() => {
+    if (activeTab === 'admins') {
+      fetchAdmins();
+    }
+  }, [activeTab]);
+
+
+  const filteredUsers = allUsers.filter(user =>
+    user.fullName.toLowerCase().includes(searchUser.toLowerCase()) ||
+    user.email.toLowerCase().includes(searchUser.toLowerCase())
+  );
+
+  const fetchUsers = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE}/api/admin/users`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      console.log('✅ Users with profiles:', data.data.users);
+      setAllUsers(data.data.users);
+    } catch (error) {
+      showError('Failed to load users');
+    }
+  };
+
   // API helpers with enhanced error handling
   const checkAdminAccess = async () => {
     try {
@@ -108,6 +210,7 @@ function AdminDashboard() {
         const user = result.user || result.data?.user;
         console.log('[checkAdminAccess] User:', user);
 
+        // Check if user is admin
         if (!user || user.role !== 'admin') {
           console.error('[checkAdminAccess] User is not admin:', user);
           showError('Admin access required');
@@ -116,6 +219,18 @@ function AdminDashboard() {
         }
 
         setAdminUser(user);
+
+        // ✅ Set initial tab based on admin level
+        const isSuperAdmin = user.adminProfile?.adminLevel === 'super';
+        if (!isSuperAdmin && activeTab === 'representatives') {
+          // Post moderator tried to access admin-only tab
+          setActiveTab('overview');
+        }
+        if (!isSuperAdmin && activeTab === 'admins') {
+          // Post moderator tried to access admin management
+          setActiveTab('overview');
+        }
+
         setLoading(false);
       } else {
         console.error('[checkAdminAccess] Response not ok:', response.status);
@@ -127,6 +242,7 @@ function AdminDashboard() {
       navigate('/login');
     }
   };
+
 
   const loadDashboardData = async () => {
     console.log('[loadDashboardData] Loading for tab:', activeTab);
@@ -322,11 +438,17 @@ function AdminDashboard() {
     }
   };
 
-  const createNewAdmin = async (e) => {
+  const promoteUser = async (e) => {
     e.preventDefault();
+
+    if (!selectedUserId) {
+      showError('Please select a user to promote');
+      return;
+    }
+
     try {
       const token = localStorage.getItem('token');
-      console.log('[createNewAdmin]', newAdminData);
+      console.log('[promoteUser] Promoting user:', selectedUserId);
 
       const response = await fetch(`${API_BASE}/api/admin/promote`, {
         method: 'POST',
@@ -335,35 +457,34 @@ function AdminDashboard() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          targetUserId: newAdminData.userId,
-          adminLevel: newAdminData.adminLevel,
-          permissions: newAdminData.permissions,
+          targetUserId: selectedUserId
         }),
       });
 
       const result = await response.json();
-      console.log('[createNewAdmin] Result:', result);
+      console.log('[promoteUser] Result:', result);
 
       if (response.ok) {
-        showSuccess('Admin created successfully!');
+        showSuccess('User promoted to Post Moderator successfully!');
         setShowCreateAdminModal(false);
-        setNewAdminData({
-          email: '',
-          password: '',
-          fullName: '',
-          adminLevel: 'department',
-          permissions: [],
-        });
-        await loadAdmins();
+        setSelectedUserId('');
+        setSearchUser('');
+
+        // ✅ Refresh admin list immediately
+        await fetchAdmins();
+
+        // ✅ Also refresh user list to remove promoted user
+        await fetchUsers();
       } else {
-        console.error('[createNewAdmin] Failed:', result);
-        showError(result.message || 'Failed to create admin');
+        console.error('[promoteUser] Failed:', result);
+        showError(result.message || 'Failed to promote user');
       }
     } catch (error) {
-      console.error('[createNewAdmin] Error:', error);
+      console.error('[promoteUser] Error:', error);
       showError('Network error occurred');
     }
   };
+
 
   const handleLogout = () => {
     console.log('[handleLogout] Logging out...');
@@ -431,39 +552,63 @@ function AdminDashboard() {
         <div className="admin-brand">
           <h2>Admin Panel</h2>
           <p>{adminUser?.fullName}</p>
-          <span className="admin-badge">{adminUser?.adminProfile?.adminLevel || 'admin'}</span>
+          <span className="admin-badge">
+            {adminUser?.adminProfile?.adminLevel === 'super' ? 'Super Admin' : 'Post Moderator'}
+          </span>
         </div>
 
         <nav className="admin-nav">
-          <button className={`nav-item ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
-            <span className="nav-icon">📊</span>
-            <span>Overview</span>
-          </button>
+          {/* Overview - Only Super Admin */}
+          {adminUser?.adminProfile?.adminLevel === 'super' && (
+            <button
+              className={`nav-item ${activeTab === 'overview' ? 'active' : ''}`}
+              onClick={() => setActiveTab('overview')}
+            >
+              <span className="nav-icon">📊</span>
+              <span>Overview</span>
+            </button>
+          )}
 
-          <button className={`nav-item ${activeTab === 'representatives' ? 'active' : ''}`} onClick={() => setActiveTab('representatives')}>
-            <span className="nav-icon">👥</span>
-            <span>Club Representatives</span>
-            {stats.pendingRepresentatives > 0 && <span className="badge">{stats.pendingRepresentatives}</span>}
-          </button>
+          {/* Club Representatives - Only Super Admin */}
+          {adminUser?.adminProfile?.adminLevel === 'super' && (
+            <button
+              className={`nav-item ${activeTab === 'representatives' ? 'active' : ''}`}
+              onClick={() => setActiveTab('representatives')}
+            >
+              <span className="nav-icon">👥</span>
+              <span>Club Representatives</span>
+              {stats.pendingRepresentatives > 0 && <span className="badge">{stats.pendingRepresentatives}</span>}
+            </button>
+          )}
 
-          <button className={`nav-item ${activeTab === 'posts' ? 'active' : ''}`} onClick={() => setActiveTab('posts')}>
+          {/* Post Moderation - All Admins */}
+          <button
+            className={`nav-item ${activeTab === 'posts' ? 'active' : ''}`}
+            onClick={() => setActiveTab('posts')}
+          >
             <span className="nav-icon">📝</span>
             <span>Post Moderation</span>
             {stats.pendingPosts > 0 && <span className="badge">{stats.pendingPosts}</span>}
           </button>
 
+          {/* Admin Management - Only Super Admin */}
           {adminUser?.adminProfile?.adminLevel === 'super' && (
-            <button className={`nav-item ${activeTab === 'admins' ? 'active' : ''}`} onClick={() => setActiveTab('admins')}>
+            <button
+              className={`nav-item ${activeTab === 'admins' ? 'active' : ''}`}
+              onClick={() => setActiveTab('admins')}
+            >
               <span className="nav-icon">⚙️</span>
               <span>Admin Management</span>
             </button>
           )}
 
+          {/* Back to Events - All Admins */}
           <button className="nav-item" onClick={() => navigate('/')}>
             <span className="nav-icon">🏠</span>
             <span>Back to Events</span>
           </button>
 
+          {/* Logout - All Admins */}
           <button className="nav-item logout" onClick={handleLogout}>
             <span className="nav-icon">🚪</span>
             <span>Logout</span>
@@ -817,30 +962,77 @@ function AdminDashboard() {
               <div className="section-header">
                 <h3>Admin Management</h3>
                 <button className="btn-create" onClick={() => setShowCreateAdminModal(true)}>
-                  Create New Admin
+                  + Promote User to Admin
                 </button>
               </div>
 
-              <div className="admins-list">
-                {admins.map((admin) => (
-                  <div key={admin._id} className="admin-card">
-                    <div className="admin-info">
-                      <h4>{admin.fullName}</h4>
-                      <p>{admin.email}</p>
-                      <span className="admin-level-badge">{admin.adminProfile?.adminLevel}</span>
+              {loadingAdmins ? (
+                <div className="loading-state">Loading admins...</div>
+              ) : (
+                <div className="admins-list">
+                  {admins.length > 0 ? (
+                    admins
+                      .filter(admin => admin.adminProfile?.adminLevel !== 'super') // ✅ Hide super admin from list
+                      .map((admin) => (
+                        <div key={admin._id} className="admin-card">
+                          <div className="admin-info">
+                            {/* Admin Avatar */}
+                            <div className="admin-avatar">
+                              {admin.profilePicture ? (
+                                <img
+                                  src={`${API_BASE}${admin.profilePicture}`}
+                                  alt={admin.fullName}
+                                  className="admin-avatar-img"
+                                />
+                              ) : (
+                                admin.fullName.charAt(0).toUpperCase()
+                              )}
+                            </div>
+                            <div className="admin-details">
+                              <h4>{admin.fullName}</h4>
+                              <p>{admin.email}</p>
+                              <div className="admin-meta">
+                                <span className={`admin-level-badge ${admin.adminProfile?.adminLevel}`}>
+                                  {admin.adminProfile?.adminLevel === 'department' ? 'Post Moderator' : admin.adminProfile?.adminLevel}
+                                </span>
+                                {admin.adminProfile?.permissions && (
+                                  <div className="admin-permissions">
+                                    {admin.adminProfile.permissions.map((perm, idx) => (
+                                      <span key={idx} className="permission-tag">
+                                        {perm.replace(/_/g, ' ')}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* ✅ Revoke Button */}
+                          <div className="admin-actions">
+                            <button
+                              className="btn-revoke"
+                              onClick={() => setConfirmRevoke({
+                                id: admin._id,
+                                name: admin.fullName,
+                                profilePicture: admin.profilePicture // ✅ Add this
+                              })}
+                            >
+                              Revoke Access
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                  ) : (
+                    <div className="empty-state">
+                      <p>No admins found. Promote users to create post moderators.</p>
                     </div>
-                    <div className="admin-permissions">
-                      {admin.adminProfile?.permissions?.map((perm, idx) => (
-                        <span key={idx} className="permission-tag">
-                          {perm}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
+
         </div>
       </main>
 
@@ -850,59 +1042,70 @@ function AdminDashboard() {
           <div className="modal-overlay" onClick={() => setShowCreateAdminModal(false)} />
           <div className="modal create-admin-modal">
             <div className="modal-header">
-              <h3>Create New Admin</h3>
+              <h3>Promote User to Post Moderator</h3>
               <button className="modal-close" onClick={() => setShowCreateAdminModal(false)}>
                 ×
               </button>
             </div>
 
-            <form onSubmit={createNewAdmin} className="modal-form">
+            <form onSubmit={promoteUser} className="modal-form">
+              {/* Search Bar */}
               <div className="form-group">
-                <label>User ID *</label>
+                <label>Search User</label>
                 <input
                   type="text"
-                  value={newAdminData.userId || ''}
-                  onChange={(e) => setNewAdminData({ ...newAdminData, userId: e.target.value })}
-                  placeholder="Enter user ID to promote"
-                  required
+                  placeholder="Search by name or email..."
+                  value={searchUser}
+                  onChange={(e) => setSearchUser(e.target.value)}
+                  className="search-input"
                 />
               </div>
 
+              {/* User List */}
               <div className="form-group">
-                <label>Admin Level *</label>
-                <select
-                  value={newAdminData.adminLevel}
-                  onChange={(e) => setNewAdminData({ ...newAdminData, adminLevel: e.target.value })}
-                  required
-                >
-                  <option value="department">Department Admin</option>
-                  <option value="college">College Admin</option>
-                  <option value="super">Super Admin</option>
-                </select>
-              </div>
+                <label>Select User to Promote</label>
+                <div className="user-select-list">
+                  {filteredUsers.length > 0 ? (
+                    filteredUsers.map(user => (
+                      <div
+                        key={user._id}
+                        className={`user-select-item ${selectedUserId === user._id ? 'selected' : ''}`}
+                        onClick={() => setSelectedUserId(user._id)}
+                      >
+                        {/* ✅ Updated Avatar Section */}
+                        <div className="user-select-avatar">
+                          {user.profilePicture ? (
+                            <img
+                              src={`${API_BASE}${user.profilePicture}`}
+                              alt={user.fullName}
+                              className="user-select-avatar-img"
+                              onError={(e) => {
+                                // Fallback to letter if image fails
+                                e.target.style.display = 'none';
+                                e.target.parentElement.textContent = user.fullName.charAt(0).toUpperCase();
+                              }}
+                            />
+                          ) : (
+                            user.fullName.charAt(0).toUpperCase()
+                          )}
+                        </div>
 
-              <div className="form-group">
-                <label>Permissions</label>
-                <div className="permissions-checkboxes">
-                  {['moderate_posts', 'manage_clubs', 'manage_users', 'view_analytics'].map((perm) => (
-                    <label key={perm} className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={newAdminData.permissions.includes(perm)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setNewAdminData({ ...newAdminData, permissions: [...newAdminData.permissions, perm] });
-                          } else {
-                            setNewAdminData({
-                              ...newAdminData,
-                              permissions: newAdminData.permissions.filter((p) => p !== perm),
-                            });
-                          }
-                        }}
-                      />
-                      <span>{perm.replace(/_/g, ' ')}</span>
-                    </label>
-                  ))}
+                        <div className="user-select-info">
+                          <h4>{user.fullName}</h4>
+                          <p>{user.email}</p>
+                          <small>{user.department} • {user.collegeName}</small>
+                        </div>
+
+                        {selectedUserId === user._id && (
+                          <div className="user-select-check">✓</div>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="no-users">No users found</p>
+                  )}
+
+
                 </div>
               </div>
 
@@ -910,14 +1113,15 @@ function AdminDashboard() {
                 <button type="button" className="btn-cancel" onClick={() => setShowCreateAdminModal(false)}>
                   Cancel
                 </button>
-                <button type="submit" className="btn-submit">
-                  Create Admin
+                <button type="submit" className="btn-submit" disabled={!selectedUserId}>
+                  Promote to Moderator
                 </button>
               </div>
             </form>
           </div>
         </>
       )}
+
 
       {/* Viewer Modal */}
       {pdfViewerOpen && (
@@ -965,6 +1169,58 @@ function AdminDashboard() {
           </div>
         </>
       )}
+
+
+      {/* Confirmation Modal */}
+      {confirmRevoke && (
+        <>
+          <div className="modal-overlay" onClick={() => setConfirmRevoke(null)} />
+          <div className="modal confirm-modal">
+            <div className="modal-header">
+
+              <h3>Revoke Admin Access</h3>
+            </div>
+
+            <div className="modal-content">
+              <p>Are you sure you want to revoke admin access for:</p>
+              <div className="confirm-user-info">
+                <div className="confirm-avatar">
+                  {confirmRevoke.profilePicture ? (
+                    <img
+                      src={`${API_BASE}${confirmRevoke.profilePicture}`}
+                      alt={confirmRevoke.name}
+                      className="confirm-avatar-img"
+                    />
+                  ) : (
+                    confirmRevoke.name.charAt(0).toUpperCase()
+                  )}
+                </div>
+
+                <div>
+                  <strong>{confirmRevoke.name}</strong>
+                  <p>This action cannot be undone.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-actions">
+              <button
+                className="btn-cancel"
+                onClick={() => setConfirmRevoke(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-danger"
+                onClick={revokeAdmin}
+              >
+                Yes, Revoke Access
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
     </div>
   );
 }

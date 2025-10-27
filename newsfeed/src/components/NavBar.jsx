@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import "../css/EventPage.css";
 
+
+const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8080";
+
 const NavBar = ({ 
   searchTerm = "",
   onSearchChange,
@@ -116,14 +119,6 @@ const NavBar = ({
                         <span className="dropdown-menu-icon">⚙️</span>
                         <span>Admin Dashboard</span>
                       </button>
-                      <button
-                        role="menuitem"
-                        className="dropdown-menu-item"
-                        onClick={() => handleMenuItemClick("/settings")}
-                      >
-                        <span className="dropdown-menu-icon">⚙️</span>
-                        <span>Settings</span>
-                      </button>
                       <div className="dropdown-menu-divider"></div>
                       <button
                         role="menuitem"
@@ -144,14 +139,7 @@ const NavBar = ({
                         <span className="dropdown-menu-icon">👤</span>
                         <span>My Profile</span>
                       </button>
-                      <button
-                        role="menuitem"
-                        className="dropdown-menu-item"
-                        onClick={() => handleMenuItemClick("/settings")}
-                      >
-                        <span className="dropdown-menu-icon">⚙️</span>
-                        <span>Settings</span>
-                      </button>
+                      
                       <div className="dropdown-menu-divider"></div>
                       <button
                         role="menuitem"
@@ -214,58 +202,85 @@ const NavBar = ({
 
       <div className="navbar-actions">
         {isLoggedIn && userProfile ? (
-          <div className="profile-wrapper" ref={dropdownRef}>
+          <div className="profile-wrapper">
             <button
-              type="button"
               className="profile-button"
-              onClick={handleAvatarClick}
-              aria-haspopup="menu"
+              onClick={() => setMenuOpen(!menuOpen)}
               aria-expanded={menuOpen}
-              aria-controls="profile-menu"
+              aria-haspopup="true"
             >
-              <img
-                src={
-                  userProfile.avatar ||
-                  `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                    getDisplayName(userProfile)
-                  )}&background=4f46e5&color=fff`
-                }
-                alt="Profile"
-                className="avatar-img"
-              />
-              <span className="profile-name">
-                {getDisplayName(userProfile)}
+              {/* ✅ Profile Image */}
+              {userProfile.profilePicture ? (
+                <img
+                  src={`${API_BASE}${userProfile.profilePicture}`}
+                  alt={userProfile.fullName}
+                  className="avatar-img"
+                  onError={(e) => {
+                    // Fallback to first letter
+                    e.target.style.display = 'none';
+                    e.target.nextElementSibling.style.display = 'flex';
+                  }}
+                />
+              ) : (
+                <div className="avatar-placeholder">
+                  {userProfile.fullName?.charAt(0).toUpperCase()}
+                </div>
+              )}
+              
+              {/* Hidden fallback */}
+              <div className="avatar-placeholder" style={{ display: 'none' }}>
+                {userProfile.fullName?.charAt(0).toUpperCase()}
+              </div>
+
+              <div className="profile-name">
+                <span>{userProfile.fullName}</span>
                 {userProfile.role === 'admin' && (
-                  <span className="admin-badge-nav">Admin</span>
+                  <span className="admin-badge-nav">
+                    {userProfile.adminProfile?.adminLevel === 'super' 
+                      ? 'Admin' 
+                      : 'Moderator'}
+                  </span>
                 )}
-              </span>
-              <span aria-hidden="true">▾</span>
+              </div>
             </button>
+
+            {/* Dropdown Menu */}
             {menuOpen && (
               <div
-                id="profile-menu"
                 className="profile-dropdown-menu"
                 role="menu"
                 onClick={(e) => e.stopPropagation()}
               >
                 {userProfile.role === 'admin' ? (
                   <>
+                    {/* Admin Dashboard Link */}
                     <button
                       role="menuitem"
                       className="dropdown-menu-item admin-dashboard-item"
                       onClick={() => handleMenuItemClick("/admin")}
                     >
-                      <span className="dropdown-menu-icon">⚙️</span>
-                      <span>Admin Dashboard</span>
+                      <span className="dropdown-menu-icon">
+                        {userProfile.adminProfile?.adminLevel === 'super' ? '⚙️' : '📝'}
+                      </span>
+                      <span>
+                        {userProfile.adminProfile?.adminLevel === 'super' 
+                          ? 'Admin Dashboard' 
+                          : 'Moderation'}
+                      </span>
                     </button>
-                    <button
-                      role="menuitem"
-                      className="dropdown-menu-item"
-                      onClick={() => handleMenuItemClick("/settings")}
-                    >
-                      <span className="dropdown-menu-icon">⚙️</span>
-                      <span>Settings</span>
-                    </button>
+
+                    {/* Post moderators also see Profile */}
+                    {userProfile.adminProfile?.adminLevel !== 'super' && (
+                      <button
+                        role="menuitem"
+                        className="dropdown-menu-item"
+                        onClick={() => handleMenuItemClick("/profile")}
+                      >
+                        <span className="dropdown-menu-icon">👤</span>
+                        <span>My Profile</span>
+                      </button>
+                    )}
+
                     <div className="dropdown-menu-divider"></div>
                     <button
                       role="menuitem"
@@ -286,7 +301,7 @@ const NavBar = ({
                       <span className="dropdown-menu-icon">👤</span>
                       <span>My Profile</span>
                     </button>
-                   
+                    
                     <div className="dropdown-menu-divider"></div>
                     <button
                       role="menuitem"
@@ -302,10 +317,10 @@ const NavBar = ({
             )}
           </div>
         ) : (
-          <div className="login-prompt" onClick={() => navigate("/login")}>
-            <span className="dropdown-menu-icon">👤</span>
+          <button className="login-prompt" onClick={() => navigate('/login')}>
+            <div className="guest-avatar">👤</div>
             <span>Login</span>
-          </div>
+          </button>
         )}
       </div>
     </nav>
